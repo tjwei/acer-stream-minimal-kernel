@@ -68,7 +68,7 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
 /* product id */
-static u16 product_id;
+static u16 product_id = 0x3203;
 static int android_set_pid(const char *val, struct kernel_param *kp);
 static int android_get_pid(char *buffer, struct kernel_param *kp);
 module_param_call(product_id, android_set_pid, android_get_pid,
@@ -77,7 +77,7 @@ MODULE_PARM_DESC(product_id, "USB device product id");
 
 /* serial number */
 #define MAX_SERIAL_LEN 256
-static char serial_number[MAX_SERIAL_LEN] = "1234567890ABCDEF";
+static char serial_number[MAX_SERIAL_LEN] = "\0";
 static struct kparam_string kps = {
 	.string			= serial_number,
 	.maxlen			= MAX_SERIAL_LEN,
@@ -298,7 +298,7 @@ static int android_unbind(struct usb_composite_dev *cdev)
 	if (acm_func_cnt || gser_func_cnt)
 		gserial_cleanup();
 #if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
-	gether_cleanup();
+	//gether_cleanup();
 #endif
 
 	return 0;
@@ -333,7 +333,13 @@ static int  android_bind(struct usb_composite_dev *cdev)
 	if (id < 0)
 		return id;
 	strings_dev[STRING_SERIAL_IDX].id = id;
-	device_desc.iSerialNumber = id;
+#ifdef CONFIG_MACH_ACER_A3
+	if(strcmp(serial_number,"\0") == 0)
+		device_desc.iSerialNumber = 0;
+	else
+#endif
+		device_desc.iSerialNumber = id;
+
 
 	device_desc.idProduct = __constant_cpu_to_le16(product_id);
 	if (gadget->ops->wakeup)
@@ -345,9 +351,15 @@ static int  android_bind(struct usb_composite_dev *cdev)
 
 #if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
 	/* set up network link layer */
-	ret = gether_setup(cdev->gadget, hostaddr);
-	if (ret < 0)
-		return ret;
+	{
+		static int x=0;
+		if(!x){
+			x++;
+			ret = gether_setup(cdev->gadget, hostaddr);
+			if (ret < 0)
+				return ret;
+		}
+	}
 #endif
 
 	/* register our configuration */
@@ -475,7 +487,12 @@ static int android_set_sn(const char *kmessage, struct kernel_param *kp)
 		return -ENOSPC;
 	}
 
-	strlcpy(serial_number, kmessage, MAX_SERIAL_LEN);
+	if(len < 16)
+		memset(serial_number, '0', 16-len);
+	else
+		len = 16;
+	strlcpy(serial_number+(16-len), kmessage, MAX_SERIAL_LEN);
+	pr_info("%s: serial_number = %s\n", __func__, serial_number);
 	/* Chop out \n char as a result of echo */
 	if (serial_number[len - 1] == '\n')
 		serial_number[len - 1] = '\0';
@@ -680,6 +697,9 @@ module_init(init);
 
 static void __exit cleanup(void)
 {
+	#if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
+	gether_cleanup();
+	#endif
 	usb_composite_unregister(&android_usb_driver);
 	misc_deregister(&adb_enable_device);
 	platform_driver_unregister(&android_platform_driver);

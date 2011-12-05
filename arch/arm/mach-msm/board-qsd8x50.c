@@ -96,14 +96,13 @@
 #include <mach/s1r72v05.h>
 #include <mach/msm_tsif.h>
 #include <mach/msm_battery.h>
-
 #include "devices.h"
 #include "timer.h"
 #include "socinfo.h"
 #include "msm-keypad-devices.h"
 #include "pm.h"
-#include "proc_comm.h"
 #include "smd_private.h"
+#include "proc_comm.h"
 #include <linux/msm_kgsl.h>
 #ifdef CONFIG_USB_ANDROID
 #include <linux/usb/android.h>
@@ -112,13 +111,19 @@
 #define TOUCHPAD_SUSPEND 	34
 #define TOUCHPAD_IRQ 		38
 
-#define MSM_PMEM_MDP_SIZE	0x1C91000
+#define MSM_PMEM_MDP_SIZE	0x2491000
 
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x2196000
-#define MSM_FB_SIZE         0x177000
+#define MSM_PMEM_ADSP_SIZE	0x2B96000
+
+#ifdef CONFIG_MACH_ACER_A3
+#define MSM_FB_SIZE             0x800000
+#else
+#define MSM_FB_SIZE             0x177000
+#endif
 #define MSM_AUDIO_SIZE		0x80000
+
 #define MSM_GPU_PHYS_SIZE 	SZ_2M
 
 #ifdef CONFIG_MSM_SOC_REV_A
@@ -129,14 +134,16 @@
 
 #define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
 
-#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + 0x02B00000)
-#define MSM_PMEM_SMI_SIZE	0x01500000
+#define MODEM_SIZE          0x02300000
+#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + MODEM_SIZE)
+#define MSM_PMEM_SMI_SIZE	0x01D00000
 
 #define MSM_FB_BASE		MSM_PMEM_SMI_BASE
 #define MSM_GPU_PHYS_BASE 	(MSM_FB_BASE + MSM_FB_SIZE)
 #define MSM_PMEM_SMIPOOL_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
 #define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE \
 					- MSM_GPU_PHYS_SIZE)
+
 
 #define PMEM_KERNEL_EBI1_SIZE	0x28000
 
@@ -173,6 +180,36 @@ static struct platform_device mass_storage_device = {
 #endif
 
 #ifdef CONFIG_USB_ANDROID
+#if defined(CONFIG_MACH_ACER_A3)
+/* Dynamic composition:
+   1 - ADB
+   2 - UMS
+   4 - DIAG
+   6 - Generic Modem
+   7 - AcerSync (Original for Genric NMEA)
+   A - RNDIS
+*/
+static struct usb_composition usb_func_composition[] = {
+	{
+		/* UMS + AcerSync + Modem + DIAG */
+		.product_id         = 0x3203,
+		.functions	    = 0x2764,
+		/* UMS + AcerSync + Modem + ADB + DIAG */
+		.adb_product_id	    = 0x3202,
+		.adb_functions	    = 0x27614
+	},
+#ifdef CONFIG_USB_ANDROID_RNDIS
+	{
+		/* AcerSync + Modem + DIAG + RNDIS */
+		.product_id         = 0x3223,
+		.functions	    = 0x764A,
+		/* AcerSync + Modem + ADB + DIAG + RNDIS */
+		.adb_product_id     = 0x3222,
+		.adb_functions	    = 0x7614A,
+	},
+#endif
+};
+#else
 /* dynamic composition */
 static struct usb_composition usb_func_composition[] = {
 	{
@@ -251,6 +288,19 @@ static struct usb_composition usb_func_composition[] = {
 	},
 #endif
 };
+#endif //defined(CONFIG_MACH_ACER_A3)
+
+#ifdef CONFIG_MACH_ACER_A3
+static struct android_usb_platform_data android_usb_pdata = {
+	.vendor_id	= 0x0502,
+	.version	= 0x0100,
+	.compositions   = usb_func_composition,
+	.num_compositions = ARRAY_SIZE(usb_func_composition),
+	.product_name	= "Android HSUSB Device",
+	.manufacturer_name = "Acer Incorporated",
+	.nluns = 1,
+};
+#else
 static struct android_usb_platform_data android_usb_pdata = {
 	.vendor_id	= 0x05C6,
 	.version	= 0x0100,
@@ -260,6 +310,8 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.manufacturer_name = "Qualcomm Incorporated",
 	.nluns = 1,
 };
+#endif //def CONFIG_MACH_ACER_A3
+
 static struct platform_device android_usb_device = {
 	.name	= "android_usb",
 	.id		= -1,
@@ -420,6 +472,7 @@ static struct usb_composition usb_func_composition[] = {
 };
 #endif
 
+#ifdef CONFIG_MSM_RPCSERVER_HANDSET
 static struct platform_device hs_device = {
 	.name   = "msm-handset",
 	.id     = -1,
@@ -427,6 +480,7 @@ static struct platform_device hs_device = {
 		.platform_data = "8k_handset",
 	},
 };
+#endif
 
 #ifdef CONFIG_USB_FS_HOST
 static struct msm_gpio fsusb_config[] = {
@@ -642,6 +696,7 @@ static struct msm_hsusb_platform_data msm_hsusb_pdata = {
 #endif
 };
 
+#ifdef CONFIG_USB_EHCI_MSM
 static struct vreg *vreg_usb;
 static void msm_hsusb_vbus_power(unsigned phy_info, int on)
 {
@@ -679,6 +734,7 @@ static struct msm_usb_host_platform_data msm_usb_host2_pdata = {
 	.vbus_power = msm_hsusb_vbus_power,
 };
 #endif
+#endif //def CONFIG_USB_EHCI_MSM
 
 static struct android_pmem_platform_data android_pmem_kernel_ebi1_pdata = {
 	.name = PMEM_KERNEL_EBI1_DATA_NAME,
@@ -796,6 +852,7 @@ static struct platform_device msm_fb_device = {
 	}
 };
 
+#ifdef CONFIG_QSD_SPI
 static struct msm_gpio bma_spi_gpio_config_data[] = {
 	{ GPIO_CFG(22, 0, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA), "bma_irq" },
 };
@@ -957,7 +1014,9 @@ static void __init msm_qsd_spi_init(void)
 {
 	qsd_device_spi.dev.platform_data = &qsd_spi_pdata;
 }
+#endif //def CONFIG_QSD_SPI
 
+#ifdef CONFIG_FB_MSM_MDDI_TOSHIBA_WVGA
 static int mddi_toshiba_pmic_bl(int level)
 {
 	int ret = -EPERM;
@@ -984,6 +1043,7 @@ static struct platform_device mddi_toshiba_device = {
 		.platform_data = &mddi_toshiba_pdata,
 	}
 };
+#endif
 
 static void msm_fb_vreg_config(const char *name, int on)
 {
@@ -1003,7 +1063,9 @@ static void msm_fb_vreg_config(const char *name, int on)
 			__func__, (on) ? "vreg_enable" : "vreg_disable", name);
 }
 
+#ifdef CONFIG_MACH_QSD8X50_SURF
 #define MDDI_RST_OUT_GPIO 100
+#endif
 
 static int mddi_power_save_on;
 static void msm_fb_mddi_power_save(int on)
@@ -1017,11 +1079,13 @@ static void msm_fb_mddi_power_save(int on)
 
 	mddi_power_save_on = flag_on;
 
+#ifdef CONFIG_MACH_QSD8X50_SURF
 	if (!flag_on && (machine_is_qsd8x50_ffa()
 				|| machine_is_qsd8x50a_ffa())) {
 		gpio_set_value(MDDI_RST_OUT_GPIO, 0);
 		mdelay(1);
 	}
+#endif //CONFIG_MACH_QSD8X50_SURF
 
 	ret = pmic_lp_mode_control(flag_on ? OFF_CMD : ON_CMD,
 		PM_VREG_LP_MSME2_ID);
@@ -1031,6 +1095,7 @@ static void msm_fb_mddi_power_save(int on)
 	msm_fb_vreg_config("gp5", flag_on);
 	msm_fb_vreg_config("boost", flag_on);
 
+#ifdef CONFIG_MACH_QSD8X50_SURF
 	if (flag_on && (machine_is_qsd8x50_ffa()
 			|| machine_is_qsd8x50a_ffa())) {
 		gpio_set_value(MDDI_RST_OUT_GPIO, 0);
@@ -1039,6 +1104,7 @@ static void msm_fb_mddi_power_save(int on)
 		gpio_set_value(MDDI_RST_OUT_GPIO, 1);
 		mdelay(1);
 	}
+#endif //CONFIG_MACH_QSD8X50_SURF
 }
 
 static int msm_fb_mddi_sel_clk(u32 *clk_rate)
@@ -1052,16 +1118,24 @@ static struct mddi_platform_data mddi_pdata = {
 	.mddi_sel_clk = msm_fb_mddi_sel_clk,
 };
 
+#ifndef CONFIG_MACH_ACER_A3
 static struct msm_panel_common_pdata mdp_pdata = {
 	.gpio = 98,
 };
+#endif
 
 static void __init msm_fb_add_devices(void)
 {
+#ifdef CONFIG_MACH_ACER_A3
+	msm_fb_register_device("mdp", 0);
+#else
 	msm_fb_register_device("mdp", &mdp_pdata);
+#endif
 	msm_fb_register_device("pmdh", &mddi_pdata);
 	msm_fb_register_device("emdh", &mddi_pdata);
+#if defined(CONFIG_FB_MSM_TVOUT)
 	msm_fb_register_device("tvenc", 0);
+#endif
 	msm_fb_register_device("lcdc", 0);
 }
 
@@ -1436,9 +1510,10 @@ static void __init bt_power_init(void)
 exit:
 	return;
 }
+
 #else
 #define bt_power_init(x) do {} while (0)
-#endif
+#endif //def CONFIG_BT
 
 static struct resource kgsl_resources[] = {
        {
@@ -1461,7 +1536,7 @@ static struct resource kgsl_resources[] = {
        },
 };
 static struct kgsl_platform_data kgsl_pdata = {
-	.high_axi_3d = 128000, /* Max for 8K */
+	.high_axi_3d = 128000, /*Max for 8K*/
 	.max_grp2d_freq = 0,
 	.min_grp2d_freq = 0,
 	.set_grp2d_async = NULL,
@@ -1547,7 +1622,7 @@ static struct msm_acpu_clock_platform_data qsd8x50_clock_data = {
 	.acpu_set_vdd = qsd8x50_tps65023_set_dcdc1,
 };
 
-
+#ifdef CONFIG_MOUSE_MSM_TOUCHPAD
 static void touchpad_gpio_release(void)
 {
 	gpio_free(TOUCHPAD_IRQ);
@@ -1601,7 +1676,9 @@ static struct msm_touchpad_platform_data msm_touchpad_data = {
 	.gpio_setup  = touchpad_gpio_setup,
 	.gpio_shutdown = touchpad_gpio_release
 };
+#endif //def CONFIG_MOUSE_MSM_TOUCHPAD
 
+#ifdef CONFIG_KEYBOARD_I2C_MSM
 #define KBD_RST 35
 #define KBD_IRQ 36
 
@@ -1668,19 +1745,24 @@ static struct msm_i2ckbd_platform_data msm_kybd_data = {
 	.gpio_shutdown = kbd_gpio_release,
 	.hw_reset = kbd_hwreset,
 };
+#endif //def CONFIG_KEYBOARD_I2C_MSM
 
 static struct i2c_board_info msm_i2c_board_info[] __initdata = {
+#ifdef CONFIG_MOUSE_MSM_TOUCHPAD
 	{
 		I2C_BOARD_INFO("glidesensor", 0x2A),
 		.irq           =  MSM_GPIO_TO_INT(TOUCHPAD_IRQ),
 		.platform_data = &msm_touchpad_data
 	},
+#endif
+#ifdef CONFIG_KEYBOARD_I2C_MSM
 	{
 		I2C_BOARD_INFO("msm-i2ckbd", 0x3A),
 		.type           = "msm-i2ckbd",
 		.irq           =  MSM_GPIO_TO_INT(KBD_IRQ),
 		.platform_data  = &msm_kybd_data
 	},
+#endif
 #ifdef CONFIG_MT9D112
 	{
 		I2C_BOARD_INFO("mt9d112", 0x78 >> 1),
@@ -1706,16 +1788,23 @@ static struct i2c_board_info msm_i2c_board_info[] __initdata = {
 		I2C_BOARD_INFO("mt9t013", 0x6C),
 	},
 #endif
+#ifdef CONFIG_TPS65023
 	{
 		I2C_BOARD_INFO("tps65023", 0x48),
 	},
+#endif
+#if defined(CONFIG_MCU)
+	{
+		I2C_BOARD_INFO("mcu", 0x68),
+		.irq = MSM_GPIO_TO_INT(39),
+	},
+#endif
 };
-
 #ifdef CONFIG_MSM_CAMERA
 static uint32_t camera_off_gpio_table[] = {
 	/* parallel CAMERA interfaces */
-	GPIO_CFG(0,  0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT0 */
-	GPIO_CFG(1,  0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT1 */
+	GPIO_CFG(0,  0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA), /* DAT0 */
+	GPIO_CFG(1,  0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA), /* DAT1 */
 	GPIO_CFG(2,  0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT2 */
 	GPIO_CFG(3,  0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT3 */
 	GPIO_CFG(4,  0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT4 */
@@ -1734,8 +1823,8 @@ static uint32_t camera_off_gpio_table[] = {
 
 static uint32_t camera_on_gpio_table[] = {
 	/* parallel CAMERA interfaces */
-	GPIO_CFG(0,  1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT0 */
-	GPIO_CFG(1,  1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT1 */
+	GPIO_CFG(0,  0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA), /* DAT0 */
+	GPIO_CFG(1,  0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA), /* DAT1 */
 	GPIO_CFG(2,  1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT2 */
 	GPIO_CFG(3,  1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT3 */
 	GPIO_CFG(4,  1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* DAT4 */
@@ -1749,7 +1838,7 @@ static uint32_t camera_on_gpio_table[] = {
 	GPIO_CFG(12, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* PCLK */
 	GPIO_CFG(13, 1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* HSYNC_IN */
 	GPIO_CFG(14, 1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), /* VSYNC_IN */
-	GPIO_CFG(15, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_16MA), /* MCLK */
+	GPIO_CFG(15, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_6MA), /* MCLK */
 };
 
 static uint32_t camera_on_gpio_ffa_table[] = {
@@ -1893,11 +1982,13 @@ static struct msm_camera_device_platform_data msm_camera_device_data = {
 	.ioext.appsz  = MSM_CLK_CTL_SIZE,
 };
 
+#if !defined(CONFIG_MACH_ACER_A3)
 static struct msm_camera_sensor_flash_src msm_flash_src = {
 	.flash_sr_type = MSM_CAMERA_FLASH_SRC_PMIC,
 	._fsrc.pmic_src.low_current  = 30,
 	._fsrc.pmic_src.high_current = 100,
 };
+#endif
 
 #ifdef CONFIG_MT9D112
 static struct msm_camera_sensor_flash_data flash_mt9d112 = {
@@ -2030,6 +2121,7 @@ static struct platform_device msm_camera_sensor_mt9t013 = {
 #endif
 #endif /*CONFIG_MSM_CAMERA*/
 
+#ifdef CONFIG_BATTERY_MSM
 static u32 msm_calculate_batt_capacity(u32 current_voltage);
 
 static struct msm_psy_batt_pdata msm_psy_batt_data = {
@@ -2054,6 +2146,7 @@ static struct platform_device msm_batt_device = {
 	.id		    = -1,
 	.dev.platform_data  = &msm_psy_batt_data,
 };
+#endif //def #ifdef CONFIG_BATTERY_MSM
 
 static int hsusb_rpc_connect(int connect)
 {
@@ -2077,7 +2170,9 @@ static struct msm_hsusb_gadget_platform_data msm_gadget_pdata;
 
 static struct platform_device *devices[] __initdata = {
 	&msm_fb_device,
+#ifdef CONFIG_FB_MSM_MDDI_TOSHIBA_WVGA
 	&mddi_toshiba_device,
+#endif
 	&smc91x_device,
 	&s1r72v05_device,
 	&msm_device_smd,
@@ -2091,7 +2186,9 @@ static struct platform_device *devices[] __initdata = {
 	&android_pmem_smipool_device,
 	&msm_device_nand,
 	&msm_device_i2c,
+#ifdef CONFIG_QSD_SPI
 	&qsd_device_spi,
+#endif
 #ifdef CONFIG_USB_FUNCTION
 	&mass_storage_device,
 #endif
@@ -2101,6 +2198,9 @@ static struct platform_device *devices[] __initdata = {
 	&msm_device_tssc,
 	&msm_audio_device,
 	&msm_device_uart_dm1,
+#ifdef CONFIG_MACH_ACER_A3
+	&msm_device_uart_dm2,
+#endif
 	&msm_bluesleep_device,
 #ifdef CONFIG_BT
 	&msm_bt_power_device,
@@ -2110,7 +2210,9 @@ static struct platform_device *devices[] __initdata = {
 #endif
 	&msm_device_pmic_leds,
 	&msm_device_kgsl,
+#ifdef CONFIG_MSM_RPCSERVER_HANDSET
 	&hs_device,
+#endif
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 	&msm_device_tsif,
 #endif
@@ -2129,7 +2231,9 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_MT9P012_KM
 	&msm_camera_sensor_mt9p012_km,
 #endif
+#ifdef CONFIG_BATTERY_MSM
 	&msm_batt_device,
+#endif
 };
 
 static void __init qsd8x50_init_irq(void)
@@ -2170,6 +2274,7 @@ static void __init qsd8x50_init_usb(void)
 	platform_device_register(&msm_device_gadget_peripheral);
 #endif
 
+#ifdef CONFIG_USB_EHCI_MSM
 	if (machine_is_qsd8x50_ffa() || machine_is_qsd8x50a_ffa())
 		return;
 
@@ -2188,6 +2293,7 @@ static void __init qsd8x50_init_usb(void)
 		return;
 	msm_add_host(1, &msm_usb_host2_pdata);
 #endif
+#endif //def CONFIG_USB_EHCI_MSM
 }
 
 static struct vreg *vreg_mmc;
@@ -2220,6 +2326,7 @@ static struct msm_gpio sdc2_cfg_data[] = {
 	{GPIO_CFG(67, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_dat_0"},
 };
 
+#ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
 static struct msm_gpio sdc3_cfg_data[] = {
 	{GPIO_CFG(88, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc3_clk"},
 	{GPIO_CFG(89, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_cmd"},
@@ -2235,7 +2342,9 @@ static struct msm_gpio sdc3_cfg_data[] = {
 	{GPIO_CFG(161, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_dat_7"},
 #endif
 };
+#endif
 
+#ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
 static struct msm_gpio sdc4_cfg_data[] = {
 	{GPIO_CFG(142, 3, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc4_clk"},
 	{GPIO_CFG(143, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_cmd"},
@@ -2244,6 +2353,7 @@ static struct msm_gpio sdc4_cfg_data[] = {
 	{GPIO_CFG(146, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_2"},
 	{GPIO_CFG(147, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_3"},
 };
+#endif
 
 static struct sdcc_gpio sdcc_cfg_data[] = {
 	{
@@ -2254,14 +2364,18 @@ static struct sdcc_gpio sdcc_cfg_data[] = {
 		.cfg_data = sdc2_cfg_data,
 		.size = ARRAY_SIZE(sdc2_cfg_data),
 	},
+#ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
 	{
 		.cfg_data = sdc3_cfg_data,
 		.size = ARRAY_SIZE(sdc3_cfg_data),
 	},
+#endif
+#ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
 	{
 		.cfg_data = sdc4_cfg_data,
 		.size = ARRAY_SIZE(sdc4_cfg_data),
 	},
+#endif
 };
 
 static unsigned long vreg_sts, gpio_sts;
@@ -2374,6 +2488,20 @@ static struct mmc_platform_data qsd8x50_sdc2_data = {
 #endif
 
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
+#ifdef CONFIG_MACH_ACER_A3
+static struct mmc_platform_data qsd8x50_sdc3_movinand = {
+	.ocr_mask       = MMC_VDD_27_28 | MMC_VDD_28_29,
+	.translate_vdd  = msm_sdcc_setup_power,
+#ifdef CONFIG_MMC_MSM_SDC3_8_BIT_SUPPORT
+	.mmc_bus_width  = MMC_CAP_8_BIT_DATA,
+#else
+	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+#endif
+#ifdef CONFIG_MMC_MSM_SDC3_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
+};
+#else
 static struct mmc_platform_data qsd8x50_sdc3_data = {
 	.ocr_mask       = MMC_VDD_27_28 | MMC_VDD_28_29,
 	.translate_vdd  = msm_sdcc_setup_power,
@@ -2386,6 +2514,7 @@ static struct mmc_platform_data qsd8x50_sdc3_data = {
 	.dummy52_required = 1,
 #endif
 };
+#endif
 #endif
 
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
@@ -2402,10 +2531,15 @@ static struct mmc_platform_data qsd8x50_sdc4_data = {
 
 static void __init qsd8x50_init_mmc(void)
 {
+#if !defined (CONFIG_MACH_ACER_A3)
 	if (machine_is_qsd8x50_ffa() || machine_is_qsd8x50a_ffa())
 		vreg_mmc = vreg_get(NULL, "gp6");
 	else
 		vreg_mmc = vreg_get(NULL, "gp5");
+#else
+	/* A1 device uses gp6 */
+	vreg_mmc = vreg_get(NULL, "rftx");
+#endif
 
 	if (IS_ERR(vreg_mmc)) {
 		printk(KERN_ERR "%s: vreg get failed (%ld)\n",
@@ -2417,12 +2551,18 @@ static void __init qsd8x50_init_mmc(void)
 	msm_add_sdcc(1, &qsd8x50_sdc1_data);
 #endif
 
+#if defined(CONFIG_MMC_MSM_SDC3_SUPPORT) && defined(CONFIG_MACH_ACER_A3)
+	msm_add_sdcc(3, &qsd8x50_sdc3_movinand);
+#endif
+
 	if (machine_is_qsd8x50_surf() || machine_is_qsd8x50a_surf()) {
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 		msm_add_sdcc(2, &qsd8x50_sdc2_data);
 #endif
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
+#ifndef CONFIG_MACH_ACER_A3
 		msm_add_sdcc(3, &qsd8x50_sdc3_data);
+#endif
 #endif
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
 		msm_add_sdcc(4, &qsd8x50_sdc4_data);
@@ -2573,17 +2713,17 @@ static void __init pmem_adsp_size_setup(char **p)
 	pmem_adsp_size = memparse(*p, p);
 }
 __early_param("pmem_adsp_size=", pmem_adsp_size_setup);
-
-
-static unsigned audio_size = MSM_AUDIO_SIZE;
-static void __init audio_size_setup(char **p)
-{
-	audio_size = memparse(*p, p);
-}
-__early_param("audio_size=", audio_size_setup);
+ 
+ static unsigned audio_size = MSM_AUDIO_SIZE;
+ static void __init audio_size_setup(char **p)
+ {
+ 	audio_size = memparse(*p, p);
+ }
+ __early_param("audio_size=", audio_size_setup);
 
 static void __init qsd8x50_init(void)
 {
+	//gpio_set_value(48,0);
 	if (socinfo_init() < 0)
 		printk(KERN_ERR "%s: socinfo_init() failed!\n",
 		       __func__);
@@ -2614,11 +2754,15 @@ static void __init qsd8x50_init(void)
 	bt_power_init();
 	audio_gpio_init();
 	msm_device_i2c_init();
+#ifdef CONFIG_SPI
 	msm_qsd_spi_init();
+#endif
 	i2c_register_board_info(0, msm_i2c_board_info,
 				ARRAY_SIZE(msm_i2c_board_info));
+#ifdef CONFIG_SPI
 	spi_register_board_info(msm_spi_board_info,
 				ARRAY_SIZE(msm_spi_board_info));
+#endif
 	msm_pm_set_platform_data(msm_pm_data);
 	kgsl_phys_memory_init();
 
@@ -2686,14 +2830,15 @@ static void __init qsd8x50_allocate_memory_regions(void)
 	msm_fb_resources[0].start = (unsigned long)addr;
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
 	pr_info("using %lu bytes of SMI at %lx physical for fb\n",
-	       size, (unsigned long)addr);
+        size, (unsigned long)addr);
 
-	size = audio_size ? : MSM_AUDIO_SIZE;
-	addr = alloc_bootmem(size);
-	msm_audio_resources[0].start = __pa(addr);
-	msm_audio_resources[0].end = msm_audio_resources[0].start + size - 1;
-	pr_info("allocating %lu bytes at %p (%lx physical) for audio\n",
-		size, addr, __pa(addr));
+ 	size = audio_size ? : MSM_AUDIO_SIZE;
+ 	addr = alloc_bootmem(size);
+ 	msm_audio_resources[0].start = __pa(addr);
+ 	msm_audio_resources[0].end = msm_audio_resources[0].start + size - 1;
+ 	pr_info("allocating %lu bytes at %p (%lx physical) for audio\n",
+ 		size, addr, __pa(addr));
+
 }
 
 static void __init qsd8x50_map_io(void)
@@ -2704,6 +2849,21 @@ static void __init qsd8x50_map_io(void)
 	msm_clock_init(msm_clocks_8x50, msm_num_clocks_8x50);
 }
 
+#if defined(CONFIG_MACH_ACER_A3)
+MACHINE_START(ACER_A3, "krumping")
+#ifdef CONFIG_MSM_DEBUG_UART
+	.phys_io  = MSM_DEBUG_UART_PHYS,
+	.io_pg_offst = ((MSM_DEBUG_UART_BASE) >> 18) & 0xfffc,
+#endif
+	.boot_params = 0x20000100,
+	.map_io = qsd8x50_map_io,
+	.init_irq = qsd8x50_init_irq,
+	.init_machine = qsd8x50_init,
+	.timer = &msm_timer,
+MACHINE_END
+#endif //defined(CONFIG_MACH_ACER_A3)
+
+#if defined(CONFIG_MACH_QSD8X50_SURF)
 MACHINE_START(QSD8X50_SURF, "QCT QSD8X50 SURF")
 #ifdef CONFIG_MSM_DEBUG_UART
 	.phys_io  = MSM_DEBUG_UART_PHYS,
@@ -2715,7 +2875,9 @@ MACHINE_START(QSD8X50_SURF, "QCT QSD8X50 SURF")
 	.init_machine = qsd8x50_init,
 	.timer = &msm_timer,
 MACHINE_END
+#endif
 
+#if defined(CONFIG_MACH_QSD8X50_FFA)
 MACHINE_START(QSD8X50_FFA, "QCT QSD8X50 FFA")
 #ifdef CONFIG_MSM_DEBUG_UART
 	.phys_io  = MSM_DEBUG_UART_PHYS,
@@ -2751,3 +2913,5 @@ MACHINE_START(QSD8X50A_FFA, "QCT QSD8X50A FFA")
 	.init_machine = qsd8x50_init,
 	.timer = &msm_timer,
 MACHINE_END
+#endif
+

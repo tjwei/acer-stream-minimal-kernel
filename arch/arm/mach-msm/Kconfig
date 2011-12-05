@@ -146,6 +146,16 @@ config MACH_SAPPHIRE
 	default n
 	bool "Sapphire"
 
+config MACH_ACER_A3
+	depends on ARCH_QSD8X50
+	depends on MSM_SOC_REV_NONE
+	depends on MSM_STACKED_MEMORY
+	default y
+	bool "ACER A3"
+	help
+	  Support for the Acer A3 board.
+
+
 config MACH_QSD8X50_SURF
 	depends on ARCH_QSD8X50
 	depends on MSM_SOC_REV_NONE
@@ -463,7 +473,7 @@ config HTC_PWRSINK
 
 config QSD_SVS
 	bool "QSD Static Voltage Scaling"
-	depends on (MACH_QSD8X50_SURF || MACH_QSD8X50_FFA || MACH_QSD8X50_COMET || MACH_QSD8X50A_SURF || MACH_QSD8X50A_FFA)
+	depends on (MACH_QSD8X50_SURF || MACH_QSD8X50_FFA || MACH_QSD8X50_COMET || MACH_QSD8X50A_SURF || MACH_QSD8X50A_FFA || MACH_ACER_A3)
 	default y
 	select TPS65023
 	help
@@ -471,7 +481,7 @@ config QSD_SVS
 
 config QSD_PMIC_DEFAULT_DCDC1
 	int "PMIC default output voltage"
-	depends on (MACH_QSD8X50_SURF || MACH_QSD8X50_FFA || MACH_QSD8X50_COMET || MACH_QSD8X50A_SURF || MACH_QSD8X50A_FFA)
+	depends on (MACH_QSD8X50_SURF || MACH_QSD8X50_FFA || MACH_QSD8X50_COMET || MACH_QSD8X50A_SURF || MACH_QSD8X50A_FFA || MACH_ACER_A3)
 	default 1250
 	help
 	  This is the PMIC voltage at Linux kernel boot.

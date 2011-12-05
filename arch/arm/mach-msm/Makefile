@@ -109,3 +109,5 @@ obj-$(CONFIG_PMIC8058) += pmic8058-gpio.o pmic8058-mpp.o
 obj-$(CONFIG_NPA) += npa_resources.o
 obj-$(CONFIG_NPA_REMOTE_ONCRPC)	+= npa_remote_rpc_client.o
 obj-$(CONFIG_MSM_SPM) += spm.o
+obj-$(CONFIG_MACH_ACER_A3) += board-qsd8x50.o
+obj-$(CONFIG_MACH_ACER_A3) += devices_a3.o

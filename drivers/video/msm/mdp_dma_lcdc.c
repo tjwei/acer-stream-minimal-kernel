@@ -77,6 +77,14 @@
 #include "msm_fb.h"
 #include "mdp4.h"
 
+#if (defined(CONFIG_MACH_ACER_A3))
+#include <mach/board.h>
+#include <mach/vreg.h>
+#include <linux/gpio.h>
+#include "lcdc_samsung.h"
+//#include "../adi752x.h"
+#endif/* CONFIG_MACH_ACER_A3 */
+
 #ifdef CONFIG_FB_MSM_MDP40
 #define LCDC_BASE	0xC0000
 #define DTV_BASE	0xD0000
@@ -95,6 +103,11 @@ extern uint32 mdp_intr_mask;
 int first_pixel_start_x;
 int first_pixel_start_y;
 
+#if (defined(CONFIG_MACH_ACER_A1) || (CONFIG_MACH_ACER_A3))
+static struct vreg *vreg_vdd;
+static struct vreg *vreg_vddio;
+#endif
+
 int mdp_lcdc_on(struct platform_device *pdev)
 {
 	int lcdc_width;
@@ -111,8 +124,10 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	int display_v_start;
 	int display_v_end;
 	int active_hctl;
+#ifndef CONFIG_MACH_ACER_A3
 	int active_h_start;
 	int active_h_end;
+#endif
 	int active_v_start;
 	int active_v_end;
 	int ctrl_polarity;
@@ -132,11 +147,26 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	uint32 dma2_cfg_reg;
 	struct fb_info *fbi;
 	struct fb_var_screeninfo *var;
+	struct fb_fix_screeninfo *fix;
 	struct msm_fb_data_type *mfd;
 	uint32 dma_base;
 	uint32 timer_base = LCDC_BASE;
 	uint32 block = MDP_DMA2_BLOCK;
 	int ret;
+
+#if (defined(CONFIG_MACH_ACER_A3))
+	int rc = 0;
+	vreg_vdd = vreg_get(NULL, "gp5");
+	vreg_vddio = vreg_get(NULL, "gp1");
+	rc = vreg_enable(vreg_vddio);
+	if (rc)
+		printk(KERN_ERR "[SAMSUNG]%s: return val: %d \n",__func__, rc);
+	rc = vreg_enable(vreg_vdd);
+	if (rc)
+		printk(KERN_ERR "[SAMSUNG]%s: return val: %d \n",__func__, rc);
+
+	//set_hdmi_platform_device(pdev);
+#endif /* CONFIG_MACH_ACER_A3 */
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -148,29 +178,52 @@ int mdp_lcdc_on(struct platform_device *pdev)
 
 	fbi = mfd->fbi;
 	var = &fbi->var;
+	fix = &fbi->fix;
 
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	bpp = fbi->var.bits_per_pixel / 8;
 	buf = (uint8 *) fbi->fix.smem_start;
+#ifdef CONFIG_MACH_ACER_A3
+	if (fix->line_length != FB_XRES * bpp) {
+		fix->line_length = FB_XRES * bpp;
+	}
+#endif
 	buf += fbi->var.xoffset * bpp + fbi->var.yoffset * fbi->fix.line_length;
 
-	dma2_cfg_reg = DMA_PACK_ALIGN_LSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
+#if(defined(CONFIG_MACH_ACER_A3))
+	if(hw_version > 0) {
+		dma2_cfg_reg = DMA_PACK_ALIGN_MSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
+	} else 
+#endif
+	  dma2_cfg_reg = DMA_PACK_ALIGN_LSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
 
 	if (mfd->fb_imgType == MDP_BGR_565)
 		dma2_cfg_reg |= DMA_PACK_PATTERN_BGR;
+#ifdef CONFIG_MACH_ACER_A3
+	else if (mfd->fb_imgType == MDP_RGB_565)
+		dma2_cfg_reg |= DMA_PACK_PATTERN_RGB;
+	else
+		dma2_cfg_reg |= DMA_PACK_PATTERN_BGR;
+#else
 	else
 		dma2_cfg_reg |= DMA_PACK_PATTERN_RGB;
+#endif
 
 	if (bpp == 2)
 		dma2_cfg_reg |= DMA_IBUF_FORMAT_RGB565;
 	else if (bpp == 3)
 		dma2_cfg_reg |= DMA_IBUF_FORMAT_RGB888;
+#ifdef CONFIG_MACH_ACER_A3
+	else if (bpp == 4)
+		dma2_cfg_reg |= DMA_IBUF_FORMAT_xRGB8888_OR_ARGB8888;
+#endif
 	else
 		dma2_cfg_reg |= DMA_IBUF_FORMAT_xRGB8888_OR_ARGB8888;
 
 	switch (mfd->panel_info.bpp) {
+	case 32:
 	case 24:
 		dma2_cfg_reg |= DMA_DSTC0G_8BITS |
 		    DMA_DSTC1B_8BITS | DMA_DSTC2R_8BITS;
@@ -204,10 +257,19 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	/* starting address */
 	MDP_OUTP(MDP_BASE + dma_base + 0x8, (uint32) buf);
 	/* active window width and height */
+#ifdef CONFIG_MACH_ACER_A3
 	MDP_OUTP(MDP_BASE + dma_base + 0x4, ((fbi->var.yres) << 16) |
+						OS_XRES);
+#else
+	MMDP_OUTP(MDP_BASE + dma_base + 0x4, ((fbi->var.yres) << 16) |
 						(fbi->var.xres));
+#endif
 	/* buffer ystride */
+#ifdef CONFIG_MACH_ACER_A3
+	MDP_OUTP(MDP_BASE + dma_base + 0xc, OS_XRES * bpp);
+#else
 	MDP_OUTP(MDP_BASE + dma_base + 0xc, fbi->fix.line_length);
+#endif
 	/* x/y coordinate = always 0 for lcdc */
 	MDP_OUTP(MDP_BASE + dma_base + 0x10, 0);
 	/* dma config */
@@ -226,8 +288,13 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	lcdc_underflow_clr = mfd->panel_info.lcdc.underflow_clr;
 	lcdc_hsync_skew = mfd->panel_info.lcdc.hsync_skew;
 
+#ifdef CONFIG_MACH_ACER_A3
+	lcdc_width = OS_XRES;
+	lcdc_height = OS_YRES;
+#else
 	lcdc_width = mfd->panel_info.xres;
 	lcdc_height = mfd->panel_info.yres;
+#endif
 	lcdc_bpp = mfd->panel_info.bpp;
 
 	hsync_period =
@@ -245,6 +312,11 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	display_v_end =
 	    vsync_period - (v_front_porch * hsync_period) + lcdc_hsync_skew - 1;
 
+#ifdef CONFIG_MACH_ACER_A3
+		active_hctl = 0;
+		active_v_start = 0;
+		active_v_end = 0;
+#else
 	if (lcdc_width != var->xres) {
 		active_h_start = hsync_start_x + first_pixel_start_x;
 		active_h_end = active_h_start + var->xres - 1;
@@ -263,7 +335,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 		active_v_start = 0;
 		active_v_end = 0;
 	}
-
+#endif
 
 #ifdef CONFIG_FB_MSM_MDP40
 	if (mfd->panel.type == HDMI_PANEL) {
@@ -281,7 +353,12 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	hsync_polarity = 0;
 	vsync_polarity = 0;
 #endif
+
+#if(defined(CONFIG_MACH_ACER_A3))
+	data_en_polarity = 1;
+#else
 	data_en_polarity = 0;
+#endif /* CONFIG_MACH_ACER_A3 */
 
 	ctrl_polarity =
 	    (data_en_polarity << 2) | (vsync_polarity << 1) | (hsync_polarity);
@@ -321,7 +398,9 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-
+#ifdef CONFIG_MACH_ACER_A3
+	panel_poweron(1);
+#endif
 	return ret;
 }
 
@@ -352,10 +431,15 @@ int mdp_lcdc_off(struct platform_device *pdev)
 
 	/* delay to make sure the last frame finishes */
 	mdelay(100);
+#if (defined(CONFIG_MACH_ACER_A3))
+	vreg_disable(vreg_vdd);
+	pr_debug("[SAMSUNG]%s GP5 Disabled\n", __func__);
+	vreg_disable(vreg_vddio);
+	pr_debug("[SAMSUNG]%s GP1 Disabled\n", __func__);
+#endif /* CONFIG_MACH_ACER_A3 */
 
 	return ret;
 }
-
 void mdp_lcdc_update(struct msm_fb_data_type *mfd)
 {
 	struct fb_info *fbi = mfd->fbi;

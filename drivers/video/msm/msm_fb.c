@@ -48,9 +48,13 @@
 #include "mdp4.h"
 
 #ifdef CONFIG_FB_MSM_LOGO
-#define INIT_IMAGE_FILE "/logo.rle"
+#define INIT_IMAGE_FILE "/initlogo.rle"
 extern int load_565rle_image(char *filename);
 #endif
+
+#if (defined(CONFIG_MACH_ACER_A3))
+#include "lcdc_samsung.h"
+#endif /* CONFIG_MACH_ACER_A3 */
 
 static unsigned char *fbram;
 static unsigned char *fbram_phys;
@@ -175,6 +179,7 @@ static struct led_classdev backlight_led = {
 
 static struct msm_fb_platform_data *msm_fb_pdata;
 
+#ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 int msm_fb_detect_client(const char *name)
 {
 	int ret = -EPERM;
@@ -196,6 +201,7 @@ int msm_fb_detect_client(const char *name)
 
 	return ret;
 }
+#endif
 
 static int msm_fb_probe(struct platform_device *pdev)
 {
@@ -226,7 +232,6 @@ static int msm_fb_probe(struct platform_device *pdev)
 		return -EPERM;
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
-
 	if (!mfd)
 		return -ENODEV;
 
@@ -471,6 +476,9 @@ static void msmfb_early_suspend(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd = container_of(h, struct msm_fb_data_type,
 						    early_suspend);
+#ifdef CONFIG_MACH_ACER_A3
+	memset(mfd->fbi->screen_base, 0x0, mfd->fbi->fix.smem_len);
+#endif
 	msm_fb_suspend_sub(mfd);
 }
 
@@ -523,7 +531,11 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
 		if (!mfd->panel_power_on) {
+#ifdef CONFIG_MACH_ACER_A3
+			msleep(100);
+#else
 			mdelay(100);
+#endif
 			ret = pdata->on(mfd->pdev);
 			if (ret == 0) {
 				mfd->panel_power_on = TRUE;
@@ -557,7 +569,11 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 			curr_pwr_state = mfd->panel_power_on;
 			mfd->panel_power_on = FALSE;
 
+#ifdef CONFIG_MACH_ACER_A3
+			msleep(100);
+#else
 			mdelay(100);
+#endif
 			ret = pdata->off(mfd->pdev);
 			if (ret)
 				mfd->panel_power_on = curr_pwr_state;
@@ -753,8 +769,13 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	var->grayscale = 0,	/* No graylevels */
 	var->nonstd = 0,	/* standard pixel format */
 	var->activate = FB_ACTIVATE_VBL,	/* activate it at vsync */
+#if defined (CONFIG_MACH_ACER_A3)
+	var->height = panel_info->height;	// height of picture in mm
+	var->width = panel_info->width;		// width of picture in mm
+#else
 	var->height = -1,	/* height of picture in mm */
 	var->width = -1,	/* width of picture in mm */
+#endif
 	var->accel_flags = 0,	/* acceleration flags */
 	var->sync = 0,	/* see FB_SYNC_* */
 	var->rotate = 0,	/* angle we rotate counter clockwise */
@@ -836,6 +857,27 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 		var->transp.length = 8;
 		bpp = 4;
 		break;
+
+#ifdef CONFIG_MACH_ACER_A3
+	case MDP_XRGB_8888:
+		fix->type = FB_TYPE_PACKED_PIXELS;
+		fix->xpanstep = 1;
+		fix->ypanstep = 1;
+		var->vmode = FB_VMODE_NONINTERLACED;
+		var->blue.offset = 16;
+		var->green.offset = 8;
+		var->red.offset = 0;
+		var->blue.length = 8;
+		var->green.length = 8;
+		var->red.length = 8;
+		var->blue.msb_right = 0;
+		var->green.msb_right = 0;
+		var->red.msb_right = 0;
+		var->transp.offset = 24;
+		var->transp.length = 8;
+		bpp = 4;
+		break;
+#endif
 
 	case MDP_YCRYCB_H2V1:
 		/* ToDo: need to check TV-Out YUV422i framebuffer format */
@@ -979,7 +1021,11 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	     mfd->index, fbi->var.xres, fbi->var.yres, fbi->fix.smem_len);
 
 #ifdef CONFIG_FB_MSM_LOGO
+#ifdef CONFIG_MACH_ACER_A3
+	//if (!load_565rle2fb_image(INIT_IMAGE_FILE)) ;
+#else
 	if (!load_565rle_image(INIT_IMAGE_FILE)) ;	/* Flip buffer */
+#endif
 #endif
 	ret = 0;
 
@@ -1275,10 +1321,11 @@ static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 				return -EINVAL;
 		break;
 
+#ifdef CONFIG_MACH_ACER_A3
 	case 32:
-		if ((var->blue.offset != 8) ||
-			(var->green.offset != 16) ||
-			(var->red.offset != 24) ||
+		if ((var->blue.offset != 16) ||
+			(var->green.offset !=8) ||
+			(var->red.offset != 0) ||
 			(var->blue.length != 8) ||
 			(var->green.length != 8) ||
 			(var->red.length != 8) ||
@@ -1286,11 +1333,12 @@ static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 			(var->green.msb_right != 0) ||
 			(var->red.msb_right != 0) ||
 			!(((var->transp.offset == 0) &&
-				(var->transp.length == 8)) ||
-			((var->transp.offset == 0) &&
+				(var->transp.length == 0)) ||
+			  ((var->transp.offset == 24) &&
 				(var->transp.length == 8))))
 				return -EINVAL;
 		break;
+#endif
 
 	default:
 		return -EINVAL;
@@ -1325,6 +1373,7 @@ static int msm_fb_set_par(struct fb_info *info)
 	struct fb_var_screeninfo *var = &info->var;
 	int old_imgType;
 	int blank = 0;
+	static int count = 0;
 
 	old_imgType = mfd->fb_imgType;
 	switch (var->bits_per_pixel) {
@@ -1365,8 +1414,17 @@ static int msm_fb_set_par(struct fb_info *info)
 	}
 
 	if (blank) {
+#if(defined(CONFIG_MACH_ACER_A3))
+		if(count) {
+			msm_fb_blank_sub(FB_BLANK_POWERDOWN, info, mfd->op_enable);
+			msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable);
+		} else {
+			count++;
+		}
+#else
 		msm_fb_blank_sub(FB_BLANK_POWERDOWN, info, mfd->op_enable);
 		msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable);
+#endif
 	}
 
 	return 0;
@@ -1876,6 +1934,7 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 	return ret;
 #endif
 }
+
 
 typedef void (*msm_dma_barrier_function_pointer) (void *, size_t);
 
@@ -2501,6 +2560,25 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		mutex_unlock(&msm_fb_ioctl_hist_sem);
 		break;
 
+#if(defined(CONFIG_MACH_ACER_A3))
+	case MSMFB_BKL_SAMSUNG:
+
+		lcdc_samsung_set_backlight(arg);
+
+		break;
+
+	case MSMFB_BKLSAVE_SAMSUNG:
+
+		lcdc_samsung_save_backlight(arg);
+
+		break;
+
+	case MSMFB_ISBTPLAY_SAMSUNG:
+
+		lcdc_samsung_isbtplay(arg);
+
+		break;
+#endif /* CONFIG_MACH_ACER_A3 */
 	case MSMFB_GET_PAGE_PROTECTION:
 		fb_page_protection.page_protection
 			= mfd->mdp_fb_page_protection;
@@ -2660,3 +2738,4 @@ int __init msm_fb_init(void)
 }
 
 module_init(msm_fb_init);
+

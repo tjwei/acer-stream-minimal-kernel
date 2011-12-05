@@ -381,6 +381,7 @@ static struct flash_identification supported_flash[] =
 	{0x00000000, 0xFFFFFFFF,         0, 0,    0,         0,  0, }, /*ONFI*/
 	{0x1500aaec, 0xFF00FFFF, (256<<20), 0, 2048, (2048<<6), 64, }, /*Sams*/
 	{0x5500baec, 0xFF00FFFF, (256<<20), 1, 2048, (2048<<6), 64, }, /*Sams*/
+	{0x5501bcec, 0xFF00FFFF, (512<<20), 1, 2048, (2048<<6), 64, }, /*Sams*/
 	{0x6600bcec, 0xFF00FFFF, (512<<20), 1, 4096, (4096<<6), 128,}, /*Sams*/
 	{0x1500aa98, 0xFFFFFFFF, (256<<20), 0, 2048, (2048<<6), 64, }, /*Tosh*/
 	{0x5500ba98, 0xFFFFFFFF, (256<<20), 1, 2048, (2048<<6), 64, }, /*Tosh*/

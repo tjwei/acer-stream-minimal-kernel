@@ -88,6 +88,7 @@ typedef struct mdpImg_ {
 	int    sp_value;        /* sharpening strength */
 } MDPIMG;
 
+#define MDP_INP(addr) inpdw((addr))
 #define MDP_OUTP(addr, data) outpdw((addr), (data))
 #define MDP_KTIME2USEC(kt) (kt.tv.sec*1000000 + kt.tv.nsec/1000)
 
@@ -440,7 +441,7 @@ struct mdp_dma_data {
 #define PPP_OP_BG_CHROMA_420 BIT(25)|BIT(26)
 #define PPP_OP_BG_CHROMA_SITE_COSITE 0
 #define PPP_OP_BG_CHROMA_SITE_OFFSITE BIT(27)
-#define PPP_OP_DEINT_EN BIT(28)
+#define PPP_OP_DEINT_EN BIT(29)
 
 #define PPP_BLEND_BG_USE_ALPHA_SEL      (1 << 0)
 #define PPP_BLEND_BG_ALPHA_REVERSE      (1 << 3)

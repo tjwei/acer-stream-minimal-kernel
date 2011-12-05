@@ -75,6 +75,7 @@
 #include <linux/pm_qos_params.h>
 
 #include "msm_fb.h"
+#include "lcdc_samsung.h"
 
 static int lcdc_probe(struct platform_device *pdev);
 static int lcdc_remove(struct platform_device *pdev);
@@ -136,11 +137,11 @@ static int lcdc_on(struct platform_device *pdev)
 	mfd = platform_get_drvdata(pdev);
 	panel_pixclock_freq = mfd->fbi->var.pixclock;
 
-	if (panel_pixclock_freq > 58000000)
+	if (panel_pixclock_freq > 62000000)
 		/* pm_qos_freq should be in Khz */
 		pm_qos_freq = panel_pixclock_freq / 1000 ;
 	else
-		pm_qos_freq = 58000;
+		pm_qos_freq = 62000;
 
 	pm_qos_update_requirement(PM_QOS_SYSTEM_BUS_FREQ , "lcdc",
 						pm_qos_freq);
@@ -151,6 +152,7 @@ static int lcdc_on(struct platform_device *pdev)
 
 	if (lcdc_pdata && lcdc_pdata->lcdc_power_save)
 		lcdc_pdata->lcdc_power_save(1);
+
 	if (lcdc_pdata && lcdc_pdata->lcdc_gpio_config)
 		ret = lcdc_pdata->lcdc_gpio_config(1);
 
@@ -219,12 +221,15 @@ static int lcdc_probe(struct platform_device *pdev)
 	 * get/set panel specific fb info
 	 */
 	mfd->panel_info = pdata->panel_info;
-
-#ifdef MSMFB_FRAMEBUF_32
-	if (mfd->index == 0)
-		mfd->fb_imgType = MDP_RGBA_8888; /* primary */
+#ifdef CONFIG_MACH_ACER_A3
+	if (pdata->panel_info.bpp == 32)
+		mfd->fb_imgType = MDP_XRGB_8888;
+	else if (pdata->panel_info.bpp == 24)
+		mfd->fb_imgType = MDP_RGB_888;
+	else if (pdata->panel_info.bpp == 16)
+		mfd->fb_imgType = MDP_RGB_565;
 	else
-		mfd->fb_imgType = MDP_RGB_565;	/* secondary */
+		pr_err("The panel can not support %dbpp format\n", VINFO_BPP);
 #else
 	mfd->fb_imgType = MDP_RGB_565;
 #endif
