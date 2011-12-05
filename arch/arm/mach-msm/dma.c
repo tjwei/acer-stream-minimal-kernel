@@ -21,6 +21,9 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <mach/dma.h>
+#if defined(CONFIG_MACH_ACER_A3)
+#include <linux/delay.h>
+#endif
 
 #define MODULE_NAME "msm_dmov"
 #define MSM_DMOV_CHANNEL_COUNT 16
@@ -190,6 +193,43 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr)
 }
 EXPORT_SYMBOL(msm_dmov_exec_cmd);
 
+#if defined(CONFIG_MACH_ACER_A3)
+int msm_dmov_exec_cmd_polling(unsigned id, unsigned int cmdptr)
+{
+	unsigned n;
+	unsigned long irq_flags;
+
+	spin_lock_irqsave(&msm_dmov_lock, irq_flags);
+	if(clk_ctl == CLK_DIS)
+		clk_enable(msm_dmov_clk);
+	else if(clk_ctl == CLK_TO_BE_DIS);
+		del_timer(&timer);
+	clk_ctl = CLK_EN;
+
+	udelay(1);  //TODO:DVT2 timing issue//
+
+	writel(cmdptr, DMOV_CMD_PTR(id));
+	while(!(readl(DMOV_STATUS(id)) & DMOV_STATUS_RSLT_VALID)) ;
+
+	n = readl(DMOV_STATUS(id));
+
+	while(DMOV_STATUS_RSLT_COUNT(n)) {
+		n = readl(DMOV_RSLT(id));
+		if(n != 0x80000002) {
+			printk(KERN_INFO "ERROR: result: %x\n", n);
+			printk(KERN_INFO "ERROR:  flush: %x %x %x %x\n",
+			readl(DMOV_FLUSH0(DMOV_NAND_CHAN)),
+			readl(DMOV_FLUSH1(DMOV_NAND_CHAN)),
+			readl(DMOV_FLUSH2(DMOV_NAND_CHAN)),
+			readl(DMOV_FLUSH3(DMOV_NAND_CHAN)));
+		}
+		n = readl(DMOV_STATUS(id));
+	}
+	spin_unlock_irqrestore(&msm_dmov_lock, irq_flags);
+	return 0;
+}
+EXPORT_SYMBOL(msm_dmov_exec_cmd_polling);
+#endif
 
 static irqreturn_t msm_datamover_irq_handler(int irq, void *dev_id)
 {

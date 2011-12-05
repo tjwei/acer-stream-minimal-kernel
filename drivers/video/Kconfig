@@ -19,6 +19,13 @@ config VIDEO_OUTPUT_CONTROL
 	  This framework adds support for low-level control of the video 
 	  output switch.
 
+config HDMI_ADI752X
+	tristate "ADI ADV752X driver"
+	depends on I2C=y
+	default n
+	help
+	  If "YES" is set, you will get support for ADI ADV752X HDMI driver.
+
 menuconfig FB
 	tristate "Support for frame buffer devices"
 	---help---
@@ -2269,6 +2276,13 @@ choice
 	prompt "LCD Panel"
 	default FB_MSM_MDDI_AUTO_DETECT
 
+config FB_MSM_LCDC_AUO_WVGA
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC Auo WVGA Panel"
+	select FB_MSM_LCDC_PANEL
+	---help---
+	  Support for LCDC Auo WVGA (480x800) panel
+
 config FB_MSM_LCDC_SAMSUNG_WVGA
 	depends on FB_MSM_LCDC_HW
 	bool "LCDC Samsung WVGA Panel"
@@ -2504,4 +2518,3 @@ if FB || SGI_NEWPORT_CONSOLE
 endif
 
 endmenu
-

@@ -76,6 +76,8 @@
 #include "f_mass_storage.h"
 #include "gadget_chips.h"
 
+/* To temporarily fix the issue that cannot boot NB/PC with DUT plugged */
+#define NB_BOOT_WORKAROUND 1
 
 #define BULK_BUFFER_SIZE           16384
 
@@ -301,7 +303,7 @@ enum data_direction {
 	DATA_DIR_TO_HOST,
 	DATA_DIR_NONE
 };
-int can_stall = 1;
+int can_stall = 0;
 
 struct fsg_dev {
 	struct usb_function function;
@@ -1796,7 +1798,7 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 	int			lun = fsg->cmnd[1] >> 5;
 	static const char	dirletter[4] = {'u', 'o', 'i', 'n'};
 	char			hdlen[20];
-	struct lun		*curlun;
+	struct lun		*curlun = NULL;
 
 	hdlen[0] = 0;
 	if (fsg->data_dir != DATA_DIR_UNKNOWN)
@@ -1843,8 +1845,18 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 		 || (fsg->cmnd[0] == SC_INQUIRY && fsg->cmnd_size == 12))
 			cmnd_size = fsg->cmnd_size;
 		else {
+#ifdef NB_BOOT_WORKAROUND
+			pr_info("UMS: NB Workaround! Send MEDIUM_NOT_PRESENT\n");
+			if (fsg->lun >= 0 && fsg->lun < fsg->nluns)
+				fsg->curlun = curlun = &fsg->luns[fsg->lun];
+			if (curlun)
+				curlun->sense_data = SS_MEDIUM_NOT_PRESENT;
+			DBG(fsg, "SS_MEDIUM_NOT_PRESENT\n");
+			return -EINVAL;
+#else
 			fsg->phase_error = 1;
 			return -EINVAL;
+#endif
 		}
 	}
 
@@ -2998,6 +3010,11 @@ int mass_storage_function_add(struct usb_composite_dev *cdev,
 		return rc;
 	fsg = the_fsg;
 	fsg->nluns = nluns;
+
+#ifdef CONFIG_MACH_ACER_A3
+	fsg->vendor = "ACER";
+	fsg->product = "Mass Storage";
+#endif
 
 	spin_lock_init(&fsg->lock);
 	init_rwsem(&fsg->filesem);

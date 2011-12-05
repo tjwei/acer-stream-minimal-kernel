@@ -840,6 +840,62 @@ config SURF_FFA_GPIO_KEYPAD
 	default y
 	help
 	  Select if the GPIO keypad is attached.
+config ACER_A3_GPIO_KEYPAD
+	bool "Acer A3 GPIO keypad"
+	depends on INPUT_GPIO = "y"
+	default n
+	help
+	  Select if the GPIO keypad is attached.
+
+config ACER_A3_KEYPAD
+	bool "Acer A3 keypad"
+	default n
+
+config ACER_BATTERY_A3
+	depends on POWER_SUPPLY
+	default n
+	tristate "TI gas gauge"
+
+config ACER_VIBRATOR
+	default n
+	tristate "LA3R5-475AC"
+
+config ACER_HEADSET_BUTT
+	tristate "ACER Headset Button driver"
+	default n
+
+config AUDIO_TPA2018
+	tristate "TPA2018 driver"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for audio tpa2018.
+
+config ACER_HEADSET
+	tristate "ACER Headset detection driver"
+	default y
+
+config AUDIO_FM2018
+	tristate "FM2018 driver"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for audio fm2018.
+
+config AUDIO_TPA2018
+	tristate "TPA2018 driver"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for audio tpa2018.
+
+config ACER_HEADSET
+	tristate "ACER Headset detection driver"
+	default y
+
+config ACER_AUXPGA
+	tristate "ACER AUXPGA driver"
+	default y
 
 config CLOCK_BASED_SLEEP_LIMIT
 	default y
@@ -890,6 +946,27 @@ config MSM_SPM
 	default y
 	help
 	  Enables support for the subsystem power manager.
+config VIRTUAL_KPANIC_PARTITION
+	bool "Create virtual kpanic partition"
+	default n
+	help
+	  Creates a virtual mtd partition named 'kpanic', stealing space from
+	  the specified mtd partition label.
+	  *** DO NOT USE IF YOU ARE USING OTA/RECOVERY ***
+
+config VIRTUAL_KPANIC_PSIZE
+	depends on VIRTUAL_KPANIC_PARTITION
+	int "Default kpanic partition size"
+	default 16
+	help
+	  Sets the size of the virtual kpanic paritition to create.
+
+config VIRTUAL_KPANIC_SRC
+	depends on VIRTUAL_KPANIC_PARTITION
+	string "Partition to steal from"
+	default "cache"
+	help
+	  Sets the partition to steal from to make the virtual one.
 
 endif
 

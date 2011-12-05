@@ -59,6 +59,7 @@ static int __init parse_tag_msm_partition(const struct tag *tag)
 	char *name = msm_nand_names;
 	struct msm_ptbl_entry *entry = (void *) &tag->u;
 	unsigned count, n;
+	unsigned have_kpanic = 0;
 
 	count = (tag->hdr.size - 2) /
 		(sizeof(struct msm_ptbl_entry) / sizeof(__u32));
@@ -69,6 +70,9 @@ static int __init parse_tag_msm_partition(const struct tag *tag)
 	for (n = 0; n < count; n++) {
 		memcpy(name, entry->name, 15);
 		name[15] = 0;
+
+		if (!strcmp(name, "kpanic"))
+			have_kpanic = 1;
 
 		ptn->name = name;
 		ptn->offset = entry->offset;
@@ -83,6 +87,42 @@ static int __init parse_tag_msm_partition(const struct tag *tag)
 		ptn++;
 	}
 
+#ifdef CONFIG_VIRTUAL_KPANIC_PARTITION
+	if (!have_kpanic) {
+		int i;
+		uint64_t kpanic_off = 0;
+
+		if (count == MSM_MAX_PARTITIONS) {
+			printk("Cannot create virtual 'kpanic' partition\n");
+			goto out;
+		}
+
+		for (i = 0; i < count; i++) {
+			ptn = &msm_nand_partitions[i];
+			if (!strcmp(ptn->name, CONFIG_VIRTUAL_KPANIC_SRC)) {
+				ptn->size -= CONFIG_VIRTUAL_KPANIC_PSIZE;
+				kpanic_off = ptn->offset + ptn->size;
+				break;
+			}
+		}
+		if (i == count) {
+			printk(KERN_ERR "Partition %s not found\n",
+			       CONFIG_VIRTUAL_KPANIC_SRC);
+			goto out;
+		}
+
+		ptn = &msm_nand_partitions[count];
+		ptn->name ="kpanic";
+		ptn->offset = kpanic_off;
+		ptn->size = CONFIG_VIRTUAL_KPANIC_PSIZE;
+
+		printk("Virtual mtd partition '%s' created @%llx (%llu)\n",
+		       ptn->name, ptn->offset, ptn->size);
+
+		count++;
+	}
+out:
+#endif /* CONFIG_VIRTUAL_KPANIC_SRC */
 	msm_nand_data.nr_parts = count;
 	msm_nand_data.parts = msm_nand_partitions;
 

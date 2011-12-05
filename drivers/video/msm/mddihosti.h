@@ -557,8 +557,9 @@ typedef struct {
 	uint32 polling_interval;
 	boolean polling_enabled;
 } mddi_gpio_info_type;
-
+#ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 uint32 mddi_get_client_id(void);
+#endif
 void mddi_mhctl_remove(mddi_host_type host_idx);
 void mddi_host_timer_service(unsigned long data);
 #endif /* MDDIHOSTI_H */

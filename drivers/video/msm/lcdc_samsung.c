@@ -25,7 +25,7 @@
 /* FIXME CONFIG_FB_MDDI_CATCH_LCDC_PRISM is incorrect. */
 
 /* FIXME IF NOT REQUEST ADIE FLAG */
-//#include <mach/tpa2018.h>
+#include <mach/tpa2018.h>
 
 #ifdef CONFIG_FB_MSM_TRY_MDDI_CATCH_LCDC_PRISM
 #include "mddihosti.h"
@@ -248,7 +248,7 @@ void panel_poweron(int bOnOff)
 		/*  QCT ADIE is playing or not */
 
 		spin_lock_irqsave(&lcdc_samsung_spin_lock, flag);
-		if (/*get_adie_flag() == 1 ||*/ bt_flag == 1) {
+		if (get_adie_flag() == 1 || bt_flag == 1) {
 			spin_unlock_irqrestore(&lcdc_samsung_spin_lock, flag);
 
 			InitializingSequence();

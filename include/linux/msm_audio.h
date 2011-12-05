@@ -114,9 +114,12 @@
 #define HEADSET_MONO_PLUS_SPKR_STEREO_RX       0x12
 #define HEADSET_STEREO_PLUS_SPKR_MONO_RX       0x13
 #define HEADSET_STEREO_PLUS_SPKR_STEREO_RX     0x14
+#define SPKR_PHONE_MUSIC		0x19
 
 #define I2S_RX				0x20
 #define I2S_TX				0x21
+#define FM_HEADSET			0x22
+#define FM_REC				0x28
 
 #define ADRC_ENABLE		0x0001
 #define EQ_ENABLE		0x0002

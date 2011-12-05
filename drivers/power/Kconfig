@@ -95,4 +95,10 @@ config BATTERY_MSM
 	help
 	  Say Y to enable support for the battery in Qualcomm MSM.
 
+config ACER_BATTERY
+	depends on POWER_SUPPLY
+	depends on I2C
+	default n
+	tristate "TI gas gauge"
+
 endif # POWER_SUPPLY

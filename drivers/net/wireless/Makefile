@@ -56,3 +56,7 @@ obj-$(CONFIG_ATH9K)	+= ath9k/
 
 obj-$(CONFIG_MAC80211_HWSIM)	+= mac80211_hwsim.o
 obj-$(CONFIG_LIBRA_SDIOIF)	+= libra/
+
+obj-$(CONFIG_MMC_WIFI)	+= wifi-power.o
+
+obj-$(CONFIG_BCM4329)  += bcm4329/

@@ -44,6 +44,10 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
+#if defined(CONFIG_MCU)
+ #include <mach/mcu.h>
+#endif
+
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a,b)	(-EINVAL)
 #endif
@@ -314,6 +318,9 @@ static void kernel_shutdown_prepare(enum system_states state)
 	blocking_notifier_call_chain(&reboot_notifier_list,
 		(state == SYSTEM_HALT)?SYS_HALT:SYS_POWER_OFF, NULL);
 	system_state = state;
+#if defined(CONFIG_MCU)
+	mcu_dark_mode();
+#endif
 	device_shutdown();
 }
 /**

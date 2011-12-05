@@ -16,6 +16,9 @@
 
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
+#if defined (CONFIG_MACH_ACER_A3)
+extern unsigned long g_IS_SD_CMD25;
+#endif
 
 /*
  * sync everything.  Start out by waking pdflush, because that writes back
@@ -38,8 +41,16 @@ static void do_sync(unsigned long wait)
 
 SYSCALL_DEFINE0(sync)
 {
+#if defined (CONFIG_MACH_ACER_A3)
+	if (g_IS_SD_CMD25)
+		do_sync(0);
+	else
+		do_sync(1);
+	return 0;
+#else
 	do_sync(1);
 	return 0;
+#endif
 }
 
 void emergency_sync(void)

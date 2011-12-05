@@ -13,4 +13,7 @@ obj-y += routing.o
 obj-y += audio_ctl.o
 obj-y += msm_q6vdec.o
 obj-y += msm_q6venc.o
+obj-$(CONFIG_AUDIO_TPA2018)  += tpa2018.o
+obj-$(CONFIG_ACER_AUXPGA)  += acer_auxpga.o
+
 obj-$(CONFIG_QSD_AUDIO) += audiov2/

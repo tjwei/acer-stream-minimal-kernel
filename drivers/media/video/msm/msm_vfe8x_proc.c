@@ -1881,6 +1881,11 @@ int vfe_cmd_init(struct msm_vfe_callback *presp,
 		goto cmd_init_failed3;
 	}
 
+#if defined(CONFIG_MACH_ACER_A3)
+	spin_lock_init(&ctrl->irqs_lock);
+	spin_lock_init(&msm_vfe_ctrl_lock);
+#endif
+
 	ctrl->syncdata = sdata;
 	return 0;
 
@@ -3857,7 +3862,9 @@ static void vfe_reset_internal_variables(void)
 
 void vfe_reset(void)
 {
+#if !defined(CONFIG_MACH_ACER_A3)
 	spin_lock_init(&msm_vfe_ctrl_lock);
+#endif
 	vfe_reset_internal_variables();
 
 	atomic_set(&ctrl->vfe_serv_interrupt, 1);

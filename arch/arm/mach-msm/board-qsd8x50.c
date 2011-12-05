@@ -96,6 +96,11 @@
 #include <mach/s1r72v05.h>
 #include <mach/msm_tsif.h>
 #include <mach/msm_battery.h>
+
+#if defined(CONFIG_ACER_HEADSET_BUTT)
+#include <mach/acer_headset_butt.h>
+#endif
+
 #include "devices.h"
 #include "timer.h"
 #include "socinfo.h"
@@ -108,8 +113,10 @@
 #include <linux/usb/android.h>
 #endif
 
+#if defined(CONFIG_MOUSE_MSM_TOUCHPAD)
 #define TOUCHPAD_SUSPEND 	34
 #define TOUCHPAD_IRQ 		38
+#endif //defined(CONFIG_MOUSE_MSM_TOUCHPAD)
 
 #define MSM_PMEM_MDP_SIZE	0x2491000
 
@@ -147,11 +154,22 @@
 
 #define PMEM_KERNEL_EBI1_SIZE	0x28000
 
+static DEFINE_MUTEX(wifimutex);
+
+#if defined(CONFIG_MMC_WIFI)
+#define WL_PWR_EN 109
+#define WL_RST 147
+
+static int wifi_status_register(void (*callback)(int card_present, void *dev_id), void *dev_id);
+int wifi_set_carddetect(int val);
+#endif
+
 #define PMIC_VREG_WLAN_LEVEL	2600
 #define PMIC_VREG_GP6_LEVEL	2900
 
 #define FPGA_SDCC_STATUS	0x70000280
 
+#ifdef CONFIG_SMC91X
 static struct resource smc91x_resources[] = {
 	[0] = {
 		.flags  = IORESOURCE_MEM,
@@ -160,6 +178,7 @@ static struct resource smc91x_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 };
+#endif
 
 #ifdef CONFIG_USB_FUNCTION
 static struct usb_mass_storage_platform_data usb_mass_storage_pdata = {
@@ -321,13 +340,16 @@ static struct platform_device android_usb_device = {
 };
 #endif
 
+#ifdef CONFIG_SMC91X
 static struct platform_device smc91x_device = {
 	.name           = "smc91x",
 	.id             = 0,
 	.num_resources  = ARRAY_SIZE(smc91x_resources),
 	.resource       = smc91x_resources,
 };
+#endif
 
+#ifdef CONFIG_BLK_DEV_IDE_S1R72V05
 #define S1R72V05_CS_GPIO 152
 #define S1R72V05_IRQ_GPIO 148
 
@@ -407,6 +429,7 @@ static struct platform_device s1r72v05_device = {
 		.platform_data          = &s1r72v05_data,
 	},
 };
+#endif //def CONFIG_BLK_DEV_IDE_S1R72V05
 
 #ifdef CONFIG_USB_FUNCTION
 static struct usb_function_map usb_functions_map[] = {
@@ -479,6 +502,13 @@ static struct platform_device hs_device = {
 	.dev    = {
 		.platform_data = "8k_handset",
 	},
+};
+#endif
+
+#if defined(CONFIG_ACER_A3_KEYPAD)
+static struct platform_device a3_keypad_device = {
+	.name   = "a3-keypad",
+	.id     = -1,
 };
 #endif
 
@@ -852,6 +882,39 @@ static struct platform_device msm_fb_device = {
 	}
 };
 
+#if defined(CONFIG_TOUCHSCREEN_AUO_H353)
+static struct tp_platform_data auo_ts_data ={
+	.gpio = 108,
+};
+#endif
+
+#if defined(CONFIG_TOUCHSCREEN_ATMEL)
+static struct tp_platform_data atmel_ts_data ={
+	.gpio = 108,
+};
+#endif
+#if defined(CONFIG_TOUCHSCREEN_CYPRESS)
+static struct tp_platform_data cypress_ts_data ={
+	.gpio = 108,
+};
+#endif
+
+#if defined(CONFIG_ACER_HEADSET_BUTT)
+static struct hs_butt_gpio hs_butt_data = {
+	.gpio_hs_butt = 102,
+	.gpio_hs_dett = 151,
+	.gpio_hs_mic  = 152,
+};
+
+static struct platform_device hs_butt_device = {
+	.name   = "acer-hs-butt",
+	.id     = 0,
+	.dev    = {
+		.platform_data	= &hs_butt_data,
+	},
+};
+#endif
+
 #ifdef CONFIG_QSD_SPI
 static struct msm_gpio bma_spi_gpio_config_data[] = {
 	{ GPIO_CFG(22, 0, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA), "bma_irq" },
@@ -1167,6 +1230,7 @@ static struct resource msm_audio_resources[] = {
 		.end    = 71,
 		.flags  = IORESOURCE_IO,
 	},
+#ifdef CONFIG_MACH_QSD8X50_SURF
 	{
 		.name   = "sdac_din",
 		.start  = 144,
@@ -1197,6 +1261,25 @@ static struct resource msm_audio_resources[] = {
 		.end    = 146,
 		.flags  = IORESOURCE_IO,
 	},
+#endif //def CONFIG_MACH_QSD8X50_SURF
+	{
+		.name   = "sdac_dout",
+		.start  = 145,
+		.end    = 145,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "sdac_wsout",
+		.start  = 143,
+		.end    = 143,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "cc_i2s_clk",
+		.start  = 142,
+		.end    = 142,
+		.flags  = IORESOURCE_IO,
+	},
 	{
 		.name	= "audio_base_addr",
 		.start	= 0xa0700000,
@@ -1211,17 +1294,48 @@ static unsigned audio_gpio_on[] = {
 	GPIO_CFG(69, 1, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA),	/* PCM_DIN */
 	GPIO_CFG(70, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* PCM_SYNC */
 	GPIO_CFG(71, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* PCM_CLK */
+#ifdef CONFIG_MACH_QSD8X50_SURF
 	GPIO_CFG(142, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* CC_I2S_CLK */
 	GPIO_CFG(143, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* SADC_WSOUT */
 	GPIO_CFG(144, 1, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA),	/* SADC_DIN */
 	GPIO_CFG(145, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* SDAC_DOUT */
 	GPIO_CFG(146, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* MA_CLK_OUT */
+#endif
+#ifdef CONFIG_MACH_ACER_A3
+	GPIO_CFG(27, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),/* SPK_AMP_EN */
+	GPIO_CFG(102, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA),	/* HS_BUTT */
+	GPIO_CFG(151, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_2MA),	/* HS_DETECT */
+	GPIO_CFG(152, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),/* MIC_BIAS_EN */
+	GPIO_CFG(142, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* CC_I2S_CLK */
+	GPIO_CFG(143, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* SADC_WSOUT */
+	GPIO_CFG(145, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),	/* SDAC_DOUT */
+#endif // CONFIG_MACH_ACER_A3
 };
+
+#if defined(CONFIG_HDMI_ADI752X)
+static void __init hdmi_gpio_init(void)
+{
+	gpio_set_value(101, 1); /* set GPIO_101_VOUT */
+	gpio_set_value(100, 1); /* set GPIO_101_VOUT */
+}
+#endif
 
 static void __init audio_gpio_init(void)
 {
 	int pin, rc;
 
+#ifdef CONFIG_MACH_ACER_A3
+		for (pin = 0; pin < ARRAY_SIZE(audio_gpio_on); pin++) {
+			rc = gpio_tlmm_config(audio_gpio_on[pin],
+				GPIO_ENABLE);
+			if (rc) {
+				printk(KERN_ERR
+					"%s: gpio_tlmm_config(%#x)=%d\n",
+					__func__, audio_gpio_on[pin], rc);
+				return;
+		}
+	}
+#else
 	for (pin = 0; pin < ARRAY_SIZE(audio_gpio_on); pin++) {
 		rc = gpio_tlmm_config(audio_gpio_on[pin],
 			GPIO_ENABLE);
@@ -1232,6 +1346,7 @@ static void __init audio_gpio_init(void)
 			return;
 		}
 	}
+#endif
 }
 
 static struct platform_device msm_audio_device = {
@@ -1241,6 +1356,30 @@ static struct platform_device msm_audio_device = {
 	.resource       = msm_audio_resources,
 };
 
+#if defined(CONFIG_MS3C)
+static void __init compass_gpio_init(void)
+{
+	const int ms3c_reset_pin = 23;
+	int rc = gpio_request(ms3c_reset_pin, "CP_RST");
+
+	if(rc){
+		pr_err("gpio_request failed on pin %d (rc=%d)\n", ms3c_reset_pin, rc);
+		return ;
+	}
+
+	gpio_set_value(ms3c_reset_pin, 0);
+	mdelay(100);
+	gpio_set_value(ms3c_reset_pin, 1);
+
+	if(gpio_get_value(ms3c_reset_pin) != 1){
+		pr_err("Yamaha MS-3C gpio init failed!\n");
+		return;
+	}
+	pr_info("Yamaha MS-3C gpio init done.\n");
+}
+#endif //defined(CONFIG_MS3C)
+
+
 static struct resource bluesleep_resources[] = {
 	{
 		.name	= "gpio_host_wake",
@@ -1248,12 +1387,21 @@ static struct resource bluesleep_resources[] = {
 		.end	= 21,
 		.flags	= IORESOURCE_IO,
 	},
+#ifdef CONFIG_MACH_ACER_A3
+	{
+		.name	= "gpio_ext_wake",
+		.start	= 107,
+		.end	= 107,
+		.flags	= IORESOURCE_IO,
+	},
+#else
 	{
 		.name	= "gpio_ext_wake",
 		.start	= 19,
 		.end	= 19,
 		.flags	= IORESOURCE_IO,
 	},
+#endif
 	{
 		.name	= "host_wake",
 		.start	= MSM_GPIO_TO_INT(21),
@@ -1286,6 +1434,7 @@ enum {
 	BT_VDD_FREG
 };
 
+#ifdef CONFIG_MACH_QSD8X50_SURF
 static struct msm_gpio bt_config_power_off[] = {
 	{ GPIO_CFG(18, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA),
 		"BT SYSRST" },
@@ -1304,7 +1453,28 @@ static struct msm_gpio bt_config_power_off[] = {
 	{ GPIO_CFG(46, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA),
 		"UART1DM_TX" }
 };
+#endif
 
+#ifdef CONFIG_MACH_ACER_A3
+static struct msm_gpio bt_config_power_on[] = {
+	{ GPIO_CFG(31, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
+		"BT SYSRST" },
+	{ GPIO_CFG(107, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
+		"BT WAKE" },
+	{ GPIO_CFG(21, 0, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA),
+		"HOST WAKE" },
+	{ GPIO_CFG(106, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
+		"PWR_EN" },
+	{ GPIO_CFG(157, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
+		"UART2DM_RFR" },
+	{ GPIO_CFG(141, 1, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA),
+		"UART2DM_CTS" },
+	{ GPIO_CFG(139, 1, GPIO_INPUT,  GPIO_NO_PULL, GPIO_2MA),
+		"UART2DM_RX" },
+	{ GPIO_CFG(140, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
+		"UART2DM_TX" }
+};
+#else
 static struct msm_gpio bt_config_power_on[] = {
 	{ GPIO_CFG(18, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
 		"BT SYSRST" },
@@ -1323,7 +1493,9 @@ static struct msm_gpio bt_config_power_on[] = {
 	{ GPIO_CFG(46, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
 		"UART1DM_TX" }
 };
+#endif //def CONFIG_MACH_ACER_A3
 
+#ifdef CONFIG_MACH_QSD8X50_SURF
 static struct msm_gpio wlan_config_power_off[] = {
 	{ GPIO_CFG(62, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA),
 		"SDC2_CLK" },
@@ -1361,6 +1533,63 @@ static struct msm_gpio wlan_config_power_on[] = {
 	{ GPIO_CFG(138, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
 		"WLAN_PWD" }
 };
+#endif //def CONFIG_MACH_QSD8X50_SURF
+
+#ifdef CONFIG_MACH_ACER_A3
+
+static int bluetooth_power(int on)
+{
+	if (on) {
+		gpio_set_value(106, on); /* PWR_EN */
+		mdelay(100);
+		gpio_set_value(31, on); /* SYSRST */
+	} else {
+		gpio_set_value(106, 0); /* PWR_EN */
+		mdelay(100);
+		gpio_set_value(31, 0); /* SYSRST */
+	}
+
+	printk(KERN_DEBUG "Bluetooth power switch: %d\n", on);
+
+	return 0;
+
+}
+
+static void __init bt_power_init(void)
+{
+	int rc;
+
+	rc = msm_gpios_enable(bt_config_power_on,
+			ARRAY_SIZE(bt_config_power_on));
+	if (rc < 0) {
+		printk(KERN_ERR
+				"%s: bt power on gpio config failed: %d\n",
+				__func__, rc);
+		goto exit;
+	}
+
+	if (gpio_request(31, "bt_reset"))
+		pr_err("failed to request gpio bt_reset\n");
+	if (gpio_request(106, "bt_power_enable"))
+		pr_err("failed to request gpio bt_power_enable\n");
+	if (gpio_request(157, "bt_rfr"))
+		pr_err("failed to request gpio bt_rfr\n");
+	if (gpio_request(141, "bt_cts"))
+		pr_err("failed to request gpio bt_cts\n");
+	if (gpio_request(139, "bt_rx"))
+		pr_err("failed to request gpio bt_rx\n");
+	if (gpio_request(140, "bt_tx"))
+		pr_err("failed to request gpio bt_tx\n");
+
+	msm_bt_power_device.dev.platform_data = &bluetooth_power;
+
+	printk(KERN_DEBUG "Bluetooth power switch: initialized\n");
+
+exit:
+	return;
+}
+
+#else //#ifdef CONFIG_MACH_ACER_A3
 
 static int bluetooth_power(int on)
 {
@@ -1510,10 +1739,104 @@ static void __init bt_power_init(void)
 exit:
 	return;
 }
+#endif //def CONFIG_MACH_ACER_A3
 
 #else
 #define bt_power_init(x) do {} while (0)
 #endif //def CONFIG_BT
+
+#if defined(CONFIG_MMC_WIFI)
+//for Wifi Module Card Detect
+static struct platform_device msm_wifi_power_device = {
+	.name = "wifi_power",
+};
+
+static struct embedded_sdio_data bcm_wifi_emb_data = {
+    .cis = {
+        .max_dtr = 25000000,
+    },
+    .cccr = {
+        .multi_block = 1,
+    },
+};
+
+//When sue Android UI to Open Wifi and open Wifi Power
+static int wifi_power(int on)
+{
+
+    pr_debug("%s\n", __func__);
+
+    //In order to follow wifi power sequence, we have to detect bt power status
+    mutex_lock(&wifimutex);
+    if (on) {
+        gpio_set_value(WL_PWR_EN, 1); /* WL_PWR_EN */
+        gpio_set_value(WL_RST, 1); /* WL_RST */
+        msleep(200);
+        wifi_set_carddetect(1);
+        pr_info(KERN_INFO"Wifi Power ON\n");
+    } else {
+        gpio_set_value(WL_PWR_EN, 0); /* WL_PWR_EN */
+        gpio_set_value(WL_RST, 0); /* WL_RST */
+        wifi_set_carddetect(0);
+        pr_info("Wifi Power OFF\n");
+    }
+    mutex_unlock(&wifimutex);
+    return 0;
+}
+
+static void __init wifi_power_init(void)
+{
+	msm_wifi_power_device.dev.platform_data = &wifi_power;
+}
+
+//For Wifi Module Card Detect
+static void (*wifi_status_cb)(int card_present, void *dev_id);
+static void *wifi_status_cb_devid;
+
+static int wifi_status_register(void (*callback)(int card_present, void *dev_id), void *dev_id)
+{
+    if (wifi_status_cb)
+        return -EAGAIN;
+    wifi_status_cb = callback;
+    wifi_status_cb_devid = dev_id;
+    return 0;
+}
+
+int wifi_set_carddetect(int val)
+{
+    pr_info("%s: %d\n", __func__, val);
+    if (wifi_status_cb) {
+        wifi_status_cb(val, wifi_status_cb_devid);
+    } else
+        pr_debug("%s: Nobody to notify\n", __func__);
+    return 0;
+}
+
+EXPORT_SYMBOL(wifi_set_carddetect);
+
+#endif//def CONFIG_MMC_WIFI
+
+#if defined(CONFIG_MACH_ACER_A3)
+static void __init wlan_init(void)
+{
+    struct vreg *vreg;
+    int rc;
+
+    vreg = vreg_get(NULL, "wlan");
+    if (IS_ERR(vreg)) {
+        printk(KERN_ERR "%s: vreg get failed (%ld)\n",
+		       __func__, PTR_ERR(vreg));
+        return;
+    }
+
+    rc = vreg_enable(vreg);
+    if (rc) {
+        printk(KERN_ERR "%s: vreg enable failed (%d)\n",
+		       __func__, rc);
+        return;
+    }
+}
+#endif //def CONFIG_MACH_ACER_A3
 
 static struct resource kgsl_resources[] = {
        {
@@ -1559,6 +1882,13 @@ static struct platform_device msm_device_pmic_leds = {
 	.name	= "pmic-leds",
 	.id	= -1,
 };
+
+#if defined(CONFIG_ACER_BATTERY_A3)
+static struct platform_device battery_device = {
+	.name           = "acer-battery",
+	.id             = 0,
+};
+#endif
 
 /* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
@@ -1773,6 +2103,11 @@ static struct i2c_board_info msm_i2c_board_info[] __initdata = {
 		I2C_BOARD_INFO("s5k3e2fx", 0x20 >> 1),
 	},
 #endif
+#ifdef CONFIG_S5K4E1GX
+	{
+		I2C_BOARD_INFO("s5k4e1gx", 0x20 >> 1),
+	},
+#endif
 #ifdef CONFIG_MT9P012
 	{
 		I2C_BOARD_INFO("mt9p012", 0x6C >> 1),
@@ -1799,6 +2134,64 @@ static struct i2c_board_info msm_i2c_board_info[] __initdata = {
 		.irq = MSM_GPIO_TO_INT(39),
 	},
 #endif
+#if defined(CONFIG_HDMI_ADI752X)
+	{
+		I2C_BOARD_INFO("adi752x", 0x3D),  /* PD pin is low; this is 7-bit(0x39). 8-bit: 0x72 for commands */
+		.irq = MSM_GPIO_TO_INT(99),
+	},
+#endif
+#if defined(CONFIG_TOUCHSCREEN_AUO_H353)
+	{
+		I2C_BOARD_INFO("auo-touch", 0x5C),
+		.irq           =  MSM_GPIO_TO_INT(108),
+		.platform_data = &auo_ts_data,
+	},
+#endif
+
+#if defined(CONFIG_TOUCHSCREEN_ATMEL)
+	{
+		I2C_BOARD_INFO("atmel-touch", 0x4B),
+		.irq           =  MSM_GPIO_TO_INT(108),
+		.platform_data = &atmel_ts_data,
+	},
+#endif
+
+#if defined(CONFIG_TOUCHSCREEN_CYPRESS)
+	{
+		I2C_BOARD_INFO("cypress-touch", 0x4D),
+		.irq           =  MSM_GPIO_TO_INT(108),
+		.platform_data = &cypress_ts_data,
+	},
+#endif
+
+#if defined(CONFIG_BOSCH_SMB380)
+	{
+		I2C_BOARD_INFO("smb380", 0x38),
+		.irq           =  MSM_GPIO_TO_INT(22),
+	},
+#endif //defined(CONFIG_BOSCH_SMB380)
+#if defined(CONFIG_SENSORS_ISL29018)
+	{
+		I2C_BOARD_INFO("isl29018", 0x44),
+		.irq           =  MSM_GPIO_TO_INT(153),
+	},
+#endif //defined(CONFIG_SENSORS_ISL29018)
+#if defined(CONFIG_SENSORS_INTERSIL)
+	{
+		I2C_BOARD_INFO("isl-sensor", 0x44),
+		.irq           =  MSM_GPIO_TO_INT(30),
+	},
+#endif //defined(CONFIG_SENSORS_INTERSIL)
+#if defined(CONFIG_AUDIO_TPA2018)
+	{
+		I2C_BOARD_INFO("tpa2018", 0x70),
+	},
+#endif
+#if defined(CONFIG_SENSORS_TSL2563)
+	{
+		I2C_BOARD_INFO("tsl2563", 0x29),
+	},
+#endif //defined(CONFIG_SENSORS_TSL2563)
 };
 #ifdef CONFIG_MSM_CAMERA
 static uint32_t camera_off_gpio_table[] = {
@@ -2042,6 +2435,43 @@ static struct platform_device msm_camera_sensor_s5k3e2fx = {
 };
 #endif
 
+#ifdef CONFIG_S5K4E1GX
+#if defined(CONFIG_MACH_ACER_A3)
+static struct msm_camera_sensor_flash_data flash_s5k4e1gx = {
+	.flash_type = MSM_CAMERA_FLASH_NONE,
+	.flash_src  = NULL
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_s5k4e1gx_data = {
+	.sensor_name    = "s5k4e1gx",
+	.sensor_reset   = 146,
+	.vcm_pwd        = 0,
+	.pdata          = &msm_camera_device_data,
+	.resource       = msm_camera_resources,
+	.num_resources  = ARRAY_SIZE(msm_camera_resources),
+	.flash_data     = &flash_s5k4e1gx
+};
+#else
+static struct msm_camera_sensor_info msm_camera_sensor_s5k4e1gx_data = {
+	.sensor_name    = "s5k4e1gx",
+	.sensor_reset   = 17,
+	.sensor_pwd     = 85,
+	.vcm_pwd        = 0,
+	.pdata          = &msm_camera_device_data,
+	.flash_type     = MSM_CAMERA_FLASH_LED,
+	.resource       = msm_camera_resources,
+	.num_resources  = ARRAY_SIZE(msm_camera_resources)
+};
+#endif
+
+static struct platform_device msm_camera_sensor_s5k4e1gx = {
+	.name      = "msm_camera_s5k4e1gx",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_s5k4e1gx_data,
+	},
+};
+#endif
+
 #ifdef CONFIG_MT9P012
 static struct msm_camera_sensor_flash_data flash_mt9p012 = {
 	.flash_type = MSM_CAMERA_FLASH_LED,
@@ -2173,8 +2603,12 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_FB_MSM_MDDI_TOSHIBA_WVGA
 	&mddi_toshiba_device,
 #endif
+#ifdef CONFIG_SMC91X
 	&smc91x_device,
+#endif
+#ifdef CONFIG_BLK_DEV_IDE_S1R72V05
 	&s1r72v05_device,
+#endif
 	&msm_device_smd,
 	&msm_device_dmov,
 	&android_pmem_kernel_ebi1_device,
@@ -2205,6 +2639,9 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_BT
 	&msm_bt_power_device,
 #endif
+#if defined(CONFIG_MMC_WIFI)
+	&msm_wifi_power_device,
+#endif
 #if !defined(CONFIG_MSM_SERIAL_DEBUGGER)
 	&msm_device_uart3,
 #endif
@@ -2225,6 +2662,9 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_S5K3E2FX
 	&msm_camera_sensor_s5k3e2fx,
 #endif
+#ifdef CONFIG_S5K4E1GX
+	&msm_camera_sensor_s5k4e1gx,
+#endif
 #ifdef CONFIG_MT9P012
 	&msm_camera_sensor_mt9p012,
 #endif
@@ -2233,6 +2673,15 @@ static struct platform_device *devices[] __initdata = {
 #endif
 #ifdef CONFIG_BATTERY_MSM
 	&msm_batt_device,
+#endif
+#if defined(CONFIG_ACER_BATTERY_A3)
+	&battery_device,
+#endif
+#if defined(CONFIG_ACER_HEADSET_BUTT)
+	&hs_butt_device,
+#endif
+#if defined(CONFIG_ACER_A3_KEYPAD)
+	&a3_keypad_device,
 #endif
 };
 
@@ -2378,6 +2827,113 @@ static struct sdcc_gpio sdcc_cfg_data[] = {
 #endif
 };
 
+#if defined(CONFIG_MACH_ACER_A3)
+
+#define A1_GPIO_SDCARD_DETECT 37
+static unsigned int SDMMC_status(struct device *dev)
+{
+	if(!gpio_get_value(A1_GPIO_SDCARD_DETECT))
+		return 1;
+	else
+		return 0;
+}
+
+#if defined(CONFIG_MMC_MSM_SDC3_SUPPORT)
+#define A3_GPIO_MOVINAND_POWER 44
+#endif
+static void __init sd2p85_init(void)
+{
+	struct vreg *vreg;
+	int rc;
+
+	/* GP6 */
+	vreg = vreg_get(NULL, "gp6");
+	if (IS_ERR(vreg)) {
+		printk(KERN_ERR "%s: vreg get failed (%ld)\n",
+		       __func__, PTR_ERR(vreg));
+		return;
+	}
+
+	/* units of mV, steps of 50 mV */
+	rc = vreg_set_level(vreg, 2850);
+	if (rc) {
+		printk(KERN_ERR "%s: vreg set level failed (%d)\n",
+		       __func__, rc);
+		return;
+	}
+
+	rc = vreg_enable(vreg);
+	if (rc) {
+		printk(KERN_ERR "%s: vreg enable failed (%d)\n",
+		       __func__, rc);
+		return;
+	}
+
+	/* SD2P85 */
+	vreg = vreg_get(NULL, "rftx");
+	if (IS_ERR(vreg)) {
+		printk(KERN_ERR "%s: vreg get failed (%ld)\n",
+		       __func__, PTR_ERR(vreg));
+		return;
+	}
+
+	/* units of mV, steps of 50 mV */
+	rc = vreg_set_level(vreg, 2850);
+	if (rc) {
+		printk(KERN_ERR "%s: vreg set level failed (%d)\n",
+		       __func__, rc);
+		return;
+	}
+
+	if (gpio_request(A1_GPIO_SDCARD_DETECT, "sdc1_card_detect")) {
+		pr_err("failed to request gpio sdc1_card_detect\n");
+	} else {
+		gpio_tlmm_config(GPIO_CFG(A1_GPIO_SDCARD_DETECT, 0, GPIO_INPUT,
+			GPIO_NO_PULL, GPIO_2MA), GPIO_ENABLE);
+	}
+
+#ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
+	if (hw_version >= ACER_HW_VERSION_DVT2) {
+		rc = gpio_request(A3_GPIO_MOVINAND_POWER, "movinand_power_pin");
+		if (rc) {
+			printk(KERN_ERR "failed to request gpio movinand_power_pin\n");
+			return;
+		}
+
+		rc = gpio_tlmm_config(GPIO_CFG(A3_GPIO_MOVINAND_POWER, 0, GPIO_OUTPUT,
+			GPIO_NO_PULL, GPIO_2MA), GPIO_ENABLE);
+		if (rc) {
+			printk(KERN_ERR "gpio_tlmm_config failed on movi-NAND power pin (rc=%d)\n", rc);
+			return;
+		} else {
+			gpio_set_value(A3_GPIO_MOVINAND_POWER, 1);
+			printk(KERN_INFO "Set movi-NAND power on\n");
+		}
+	}
+#endif
+}
+
+static void __init mmc_init(void)
+{
+	struct vreg *vreg;
+	int rc;
+
+	vreg = vreg_get(NULL, "mmc");
+	if (IS_ERR(vreg)) {
+		printk(KERN_ERR "%s: vreg get failed (%ld)\n",
+		       __func__, PTR_ERR(vreg));
+		return;
+	}
+
+	rc = vreg_enable(vreg);
+	if (rc) {
+		printk(KERN_ERR "%s: vreg enable failed (%d)\n",
+		       __func__, rc);
+		return;
+	}
+}
+#endif //defined(CONFIG_MACH_ACER_A3)
+
 static unsigned long vreg_sts, gpio_sts;
 
 static void msm_sdcc_setup_gpio(int dev_id, unsigned int enable)
@@ -2409,6 +2965,7 @@ static uint32_t msm_sdcc_setup_power(struct device *dv, unsigned int vdd)
 	pdev = container_of(dv, struct platform_device, dev);
 	msm_sdcc_setup_gpio(pdev->id, !!vdd);
 
+#if !defined(CONFIG_MACH_ACER_A3)
 	if (vdd == 0) {
 		if (!vreg_sts)
 			return 0;
@@ -2432,6 +2989,39 @@ static uint32_t msm_sdcc_setup_power(struct device *dv, unsigned int vdd)
 			printk(KERN_ERR "%s: return val: %d \n",
 					__func__, rc);
 	}
+#else
+	if (vdd == 0) {
+		if (!(vreg_sts & (1 << pdev->id)))
+			return 0;
+
+		clear_bit(pdev->id, &vreg_sts);
+
+		switch (pdev->id) {
+		case 1:
+			rc = vreg_disable(vreg_mmc);
+			if (rc)
+				printk(KERN_ERR "Disable SD card power failed, return val: %d \n", rc);
+			break;
+		case 3:
+			gpio_set_value(A3_GPIO_MOVINAND_POWER, 0);
+			break;
+		}
+		return 0;
+	}
+
+	if (!(vreg_sts & (1 << pdev->id))) {
+		switch (pdev->id) {
+		case 1:
+			rc = vreg_enable(vreg_mmc);
+			if (rc)
+				printk(KERN_ERR "Enable SD card power failed, return val: %d \n", rc);
+			break;
+		case 3:
+			gpio_set_value(A3_GPIO_MOVINAND_POWER, 1);
+			break;
+		}
+	}
+#endif
 	set_bit(pdev->id, &vreg_sts);
 	return 0;
 }
@@ -2472,6 +3062,21 @@ static struct mmc_platform_data qsd8x50_sdc1_data = {
 #ifdef CONFIG_MMC_MSM_SDC1_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
+#if defined(CONFIG_MACH_ACER_A3)
+	.status_irq = MSM_GPIO_TO_INT(A1_GPIO_SDCARD_DETECT),
+	.status = SDMMC_status,
+	.irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+#endif
+};
+#endif
+
+#if defined(CONFIG_MMC_WIFI)
+static struct mmc_platform_data qsd8x50_sdcc2_wifi = {
+    .ocr_mask = MMC_VDD_27_28 | MMC_VDD_28_29,
+    .translate_vdd = msm_sdcc_setup_power,
+    .register_status_notify = wifi_status_register,
+    .embedded_sdio = &bcm_wifi_emb_data,
+    .mmc_bus_width  = MMC_CAP_4_BIT_DATA,
 };
 #endif
 
@@ -2551,6 +3156,10 @@ static void __init qsd8x50_init_mmc(void)
 	msm_add_sdcc(1, &qsd8x50_sdc1_data);
 #endif
 
+#if defined(CONFIG_MMC_MSM_SDC2_SUPPORT) && defined(CONFIG_MMC_WIFI) && defined(CONFIG_MACH_ACER_A3)
+	msm_add_sdcc(2, &qsd8x50_sdcc2_wifi);
+#endif
+
 #if defined(CONFIG_MMC_MSM_SDC3_SUPPORT) && defined(CONFIG_MACH_ACER_A3)
 	msm_add_sdcc(3, &qsd8x50_sdc3_movinand);
 #endif
@@ -2571,6 +3180,7 @@ static void __init qsd8x50_init_mmc(void)
 
 }
 
+#ifdef CONFIG_SMC91X
 static void __init qsd8x50_cfg_smc91x(void)
 {
 	int rc = 0;
@@ -2596,6 +3206,7 @@ static void __init qsd8x50_cfg_smc91x(void)
 	} else
 		printk(KERN_ERR "%s: invalid machine type\n", __func__);
 }
+#endif
 
 static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE].supported = 1,
@@ -2727,7 +3338,9 @@ static void __init qsd8x50_init(void)
 	if (socinfo_init() < 0)
 		printk(KERN_ERR "%s: socinfo_init() failed!\n",
 		       __func__);
+#ifdef CONFIG_SMC91X
 	qsd8x50_cfg_smc91x();
+#endif
 	msm_acpu_clock_init(&qsd8x50_clock_data);
 
 	msm_hsusb_pdata.swfi_latency =
@@ -2750,12 +3363,26 @@ static void __init qsd8x50_init(void)
 	config_camera_off_gpios(); /* might not be necessary */
 #endif
 	qsd8x50_init_usb();
+#if defined(CONFIG_MACH_ACER_A3)
+	sd2p85_init();
+	mmc_init();
+	wlan_init();
+#endif
 	qsd8x50_init_mmc();
 	bt_power_init();
+#if defined(CONFIG_MMC_WIFI)
+	wifi_power_init();
+#endif
 	audio_gpio_init();
 	msm_device_i2c_init();
 #ifdef CONFIG_SPI
 	msm_qsd_spi_init();
+#endif
+#ifdef CONFIG_HDMI_ADI752X
+	hdmi_gpio_init();
+#endif
+#if defined(CONFIG_MS3C)
+	compass_gpio_init();
 #endif
 	i2c_register_board_info(0, msm_i2c_board_info,
 				ARRAY_SIZE(msm_i2c_board_info));

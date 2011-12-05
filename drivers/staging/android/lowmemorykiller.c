@@ -18,6 +18,8 @@
 #include <linux/mm.h>
 #include <linux/oom.h>
 #include <linux/sched.h>
+#include <linux/list.h>
+#include <linux/notifier.h>
 
 static int lowmem_shrink(int nr_to_scan, gfp_t gfp_mask);
 
@@ -41,12 +43,125 @@ static size_t lowmem_minfree[6] = {
 };
 static int lowmem_minfree_size = 4;
 
+static struct task_struct *lowmem_deathpending;
+
 #define lowmem_print(level, x...) do { if(lowmem_debug_level >= (level)) printk(x); } while(0)
 
 module_param_named(cost, lowmem_shrinker.seeks, int, S_IRUGO | S_IWUSR);
 module_param_array_named(adj, lowmem_adj, int, &lowmem_adj_size, S_IRUGO | S_IWUSR);
 module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size, S_IRUGO | S_IWUSR);
 module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);
+
+static LIST_HEAD(plist_head);
+struct pri_pid {
+	u32 pid;
+	struct list_head list;
+};
+
+static DEFINE_MUTEX(pid_mutex);
+static u32 pid = 0;
+static int lowmem_add_pid(const char *val, struct kernel_param *kp);
+static int lowmem_del_pid(const char *val, struct kernel_param *kp);
+static int lowmem_get_pid(char *buffer, struct kernel_param *kp);
+module_param_call(add_pid, lowmem_add_pid, lowmem_get_pid, &pid, 0664);
+module_param_call(del_pid, lowmem_del_pid, lowmem_get_pid, &pid, 0664);
+
+static int lowmem_get_pid(char *buffer, struct kernel_param *kp)
+{
+	struct pri_pid *next;
+
+	mutex_lock(&pid_mutex);
+	list_for_each_entry(next, &plist_head, list) {
+		pr_info("lowmemkiller: pid=%lu\n", (unsigned long)(next->pid));
+	}
+	mutex_unlock(&pid_mutex);
+
+	return 0;
+}
+
+static int lowmem_add_pid(const char *val, struct kernel_param *kp)
+{
+	int ret = 0;
+	unsigned long tmp;
+	struct pri_pid *new_pid;
+	struct pri_pid *next;
+
+	ret = strict_strtoul(val, 10, &tmp);
+	if (ret)
+		goto out;
+
+	mutex_lock(&pid_mutex);
+	// Should nuke the list before start using it
+	list_for_each_entry(next, &plist_head, list) {
+		if (next->pid == tmp) {
+			goto out;
+		}
+	}
+	new_pid = kzalloc (sizeof(*new_pid), GFP_KERNEL);
+	if (!new_pid) {
+		pr_err("lowmemkiller: unable to allocate memory!\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+	new_pid->pid = tmp;
+	list_add(&(new_pid->list), &plist_head);
+	pr_debug("lowmemkiller: add head=%p, pid=%lu\n", new_pid, tmp);
+out:
+	mutex_unlock(&pid_mutex);
+	return ret;
+}
+
+static int lowmem_del_pid(const char *val, struct kernel_param *kp)
+{
+	int ret = 0;
+	unsigned long tmp;
+	struct pri_pid *next;
+
+	ret = strict_strtoul(val, 10, &tmp);
+	if (ret)
+		goto out;
+
+	mutex_lock(&pid_mutex);
+	if (tmp == 0) {
+		while (list_empty(&plist_head) != true) {
+			next = (struct pri_pid *)list_entry(plist_head.next,struct pri_pid, list);
+			list_del(&next->list);
+			kfree(next);
+		}
+	} else {
+		list_for_each_entry(next, &plist_head, list) {
+			if (next->pid == tmp) {
+				break;
+			}
+		}
+		if (next->pid == tmp) {
+			pr_debug("lowmemkiller: del head=%p, pid=%lu\n", next, tmp);
+			list_del(&next->list);
+			kfree(next);
+		}
+	}
+out:
+	mutex_unlock(&pid_mutex);
+	return ret;
+}
+
+static int
+task_notify_func(struct notifier_block *self, unsigned long val, void *data);
+
+static struct notifier_block task_nb = {
+	.notifier_call  = task_notify_func,
+};
+
+static int
+task_notify_func(struct notifier_block *self, unsigned long val, void *data)
+{
+	struct task_struct *task = data;
+	if (task == lowmem_deathpending) {
+	        lowmem_deathpending = NULL;
+	        task_free_unregister(&task_nb);
+	}
+	return NOTIFY_OK;
+}
 
 static int lowmem_shrink(int nr_to_scan, gfp_t gfp_mask)
 {
@@ -60,6 +175,20 @@ static int lowmem_shrink(int nr_to_scan, gfp_t gfp_mask)
 	int array_size = ARRAY_SIZE(lowmem_adj);
 	int other_free = global_page_state(NR_FREE_PAGES);
 	int other_file = global_page_state(NR_FILE_PAGES);
+	bool pri_previous;
+	bool pri_current;
+	struct pri_pid *next;
+
+	/*
+	 * If we already have a death outstanding, then
+	 * bail out right away; indicating to vmscan
+	 * that we have nothing further to offer on
+	 * this pass.
+	 *
+	 */
+	if (lowmem_deathpending)
+		return 0;
+
 	if(lowmem_adj_size < array_size)
 		array_size = lowmem_adj_size;
 	if(lowmem_minfree_size < array_size)
@@ -83,28 +212,52 @@ static int lowmem_shrink(int nr_to_scan, gfp_t gfp_mask)
 	}
 
 	read_lock(&tasklist_lock);
+
+	pri_previous = false;
 	for_each_process(p) {
 		if (p->oomkilladj < min_adj || !p->mm)
 			continue;
 		tasksize = get_mm_rss(p->mm);
 		if (tasksize <= 0)
 			continue;
+
+		pri_current = false;
+		list_for_each_entry(next, &plist_head, list) {
+			if (next->pid == p->pid) {
+				lowmem_print(1, "matched prioritized pid=%d\n", p->pid);
+				pri_current = true;
+				break;
+			}
+		}
+
 		if (selected) {
 			if (p->oomkilladj < selected->oomkilladj)
 				continue;
 			if (p->oomkilladj == selected->oomkilladj &&
-			    tasksize <= selected_tasksize)
+			    tasksize <= selected_tasksize
+			    && (!pri_previous || pri_current)) {
 				continue;
+			}
 		}
+		pri_previous = pri_current;
 		selected = p;
 		selected_tasksize = tasksize;
 		lowmem_print(2, "select %d (%s), adj %d, size %d, to kill\n",
 		             p->pid, p->comm, p->oomkilladj, tasksize);
 	}
 	if(selected != NULL) {
+		if (fatal_signal_pending(selected)) {
+			pr_warning("process %d is suffering a slow death\n",
+				   selected->pid);
+			read_unlock(&tasklist_lock);
+			return rem;
+		}
 		lowmem_print(1, "send sigkill to %d (%s), adj %d, size %d\n",
 		             selected->pid, selected->comm,
 		             selected->oomkilladj, selected_tasksize);
+
+		lowmem_deathpending = selected;
+		task_free_register(&task_nb);
 		force_sig(SIGKILL, selected);
 		rem -= selected_tasksize;
 	}

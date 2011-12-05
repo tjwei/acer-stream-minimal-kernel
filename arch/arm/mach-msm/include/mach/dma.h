@@ -38,8 +38,9 @@ void msm_dmov_enqueue_cmd_ext(unsigned id, struct msm_dmov_cmd *cmd);
 void msm_dmov_stop_cmd(unsigned id, struct msm_dmov_cmd *cmd, int graceful);
 void msm_dmov_flush(unsigned int id);
 int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
-
-
+#if defined(CONFIG_MACH_ACER_A3)
+int msm_dmov_exec_cmd_polling(unsigned id, unsigned int cmdptr);
+#endif
 
 #define DMOV_SD0(off, ch) (MSM_DMOV_BASE + 0x0000 + (off) + ((ch) << 2))
 #define DMOV_SD1(off, ch) (MSM_DMOV_BASE + 0x0400 + (off) + ((ch) << 2))

@@ -241,7 +241,11 @@ static void bit_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 	unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
 	int w = (vc->vc_font.width + 7) >> 3, c;
 	int y = real_y(ops->p, vc->vc_y);
+#if defined(CONFIG_MACH_ACER_A3)
+	int attribute;
+#else
 	int attribute, use_sw = (vc->vc_cursor_type & 0x10);
+#endif
 	int err = 1;
 	char *src;
 
@@ -361,7 +365,11 @@ static void bit_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 	case CM_DRAW:
 	case CM_MOVE:
 	default:
+#if defined(CONFIG_MACH_ACER_A3)
+		ops->cursor_state.enable = 0;
+#else
 		ops->cursor_state.enable = (use_sw) ? 0 : 1;
+#endif
 		break;
 	}
 

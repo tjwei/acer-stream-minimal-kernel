@@ -448,4 +448,19 @@ config ANDROID_TOUCHSCREEN_MSM_HACKS
 	  to Android framework to receive adjusted x, y co-ordinates
 	  until proper calibration framework is in place.
 
+config TOUCHSCREEN_AUO_H353
+	default n
+	tristate "AUO touchscreen"
+	depends on I2C
+
+config TOUCHSCREEN_ATMEL
+	default n
+	tristate "ATMEL touchscreen"
+	depends on I2C
+
+config TOUCHSCREEN_CYPRESS
+	default n
+	tristate "CYPRESS touchscreen"
+	depends on I2C
+
 endif

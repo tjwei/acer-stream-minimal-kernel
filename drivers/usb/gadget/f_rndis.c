@@ -123,9 +123,15 @@ struct usb_interface_assoc_descriptor rndis_interface_assoc_desc = {
 	.bLength           = USB_DT_INTERFACE_ASSOCIATION_SIZE,
 	.bDescriptorType   = USB_DT_INTERFACE_ASSOCIATION,
 	.bInterfaceCount   = 2,
+#ifdef CONFIG_USB_ANDROID_RNDIS_WCEIS
+	.bFunctionClass    = USB_CLASS_WIRELESS_CONTROLLER,
+	.bFunctionSubClass = 1,
+	.bFunctionProtocol = 3,
+#else
 	.bFunctionClass    = USB_CLASS_COMM,
 	.bFunctionSubClass = USB_CDC_SUBCLASS_ACM,
 	.bFunctionProtocol = USB_CDC_ACM_PROTO_VENDOR,
+#endif
 };
 
 static struct usb_interface_descriptor rndis_control_intf = {
@@ -135,9 +141,15 @@ static struct usb_interface_descriptor rndis_control_intf = {
 	/* .bInterfaceNumber = DYNAMIC */
 	/* status endpoint is optional; this could be patched later */
 	.bNumEndpoints =	1,
+#ifdef CONFIG_USB_ANDROID_RNDIS_WCEIS
+	.bInterfaceClass =	USB_CLASS_WIRELESS_CONTROLLER,
+	.bInterfaceSubClass =   1,
+	.bInterfaceProtocol =   3,
+#else
 	.bInterfaceClass =	USB_CLASS_COMM,
 	.bInterfaceSubClass =   USB_CDC_SUBCLASS_ACM,
 	.bInterfaceProtocol =   USB_CDC_ACM_PROTO_VENDOR,
+#endif
 	/* .iInterface = DYNAMIC */
 };
 
@@ -372,10 +384,32 @@ static void rndis_response_complete(struct usb_ep *ep, struct usb_request *req)
 
 static void rndis_command_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	struct f_rndis			*rndis = req->context;
-	struct usb_composite_dev	*cdev = rndis->port.func.config->cdev;
+	struct f_rndis			*rndis = NULL;
+	struct usb_composite_dev	*cdev = NULL;
 	int				status;
 
+	if (!req) {
+		pr_info("%s: req == NULL\n", __func__);
+		return;
+	}
+	if (!req->buf) {
+		pr_info("%s: req->buf == NULL\n", __func__);
+		return;
+	}
+	rndis = req->context;
+	if (!rndis) {
+		pr_info("%s: rndis == NULL\n", __func__);
+		return;
+	}
+	if (!rndis->port.func.config) {
+		pr_info("%s: rndis->port.func.config == NULL\n", __func__);
+		return;
+	}
+	cdev = rndis->port.func.config->cdev;
+	if (!cdev) {
+		pr_info("%s: cdev == NULL\n", __func__);
+		return;
+	}
 	/* received RNDIS command from USB_CDC_SEND_ENCAPSULATED_COMMAND */
 //	spin_lock(&dev->lock);
 	status = rndis_msg_parser(rndis->config, (u8 *) req->buf);

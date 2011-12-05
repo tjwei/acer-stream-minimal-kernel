@@ -2999,7 +2999,20 @@ retry:
 		 * there must be at least one object available for
 		 * allocation.
 		 */
+#if 0
 		BUG_ON(slabp->inuse >= cachep->num);
+#else
+		if (slabp->inuse >= cachep->num) {
+			printk("cachep->name:%s\n", cachep->name);
+			printk("slabp->list.next: %x \n", (unsigned int)slabp->list.next);
+			printk("slabp->list.prev: %x \n", (unsigned int)slabp->list.prev);
+			printk("slabp->inuse           : %d \n", (unsigned int)slabp->inuse);
+			printk("cachep->num            : %d \n", (unsigned int)cachep->num);
+			dump_stack();
+			printk(KERN_ERR"SLAB: slabp %p inuse %d max %d\n", slabp, slabp->inuse, cachep->num);
+			BUG();
+		}
+#endif
 
 		while (slabp->inuse < cachep->num && batchcount--) {
 			STATS_INC_ALLOCED(cachep);
@@ -3403,6 +3416,12 @@ __cache_alloc(struct kmem_cache *cachep, gfp_t flags, void *caller)
 	local_irq_restore(save_flags);
 	objp = cache_alloc_debugcheck_after(cachep, flags, objp, caller);
 	prefetchw(objp);
+
+	/*
+	 * This is a workaround for kernel 2.6.29 on 512MB RAM device
+	 */
+	if ((unsigned int)objp - CONFIG_PAGE_OFFSET >= 0x20000000)
+		return NULL;
 
 	if (unlikely((flags & __GFP_ZERO) && objp))
 		memset(objp, 0, obj_size(cachep));

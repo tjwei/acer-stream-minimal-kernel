@@ -141,3 +141,5 @@ obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
 #video output switch sysfs driver
 obj-$(CONFIG_VIDEO_OUTPUT_CONTROL) += output.o
 
+# for HDMI_ADI752X
+obj-$(CONFIG_HDMI_ADI752X)		+= adi752x.o adi752x_cec.o

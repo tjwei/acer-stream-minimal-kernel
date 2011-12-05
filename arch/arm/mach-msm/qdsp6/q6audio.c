@@ -32,6 +32,7 @@
 #include "dal_acdb.h"
 #include "dal_adie.h"
 #include <mach/msm_qdsp6_audio.h>
+#include <mach/tpa2018.h>
 
 #include <linux/msm_audio_aac.h>
 
@@ -44,6 +45,13 @@
 #else
 #define TRACE(x...) do{}while(0)
 #endif
+
+#if 1
+#define ACER_Q6_DBG(fmt, arg...) printk(KERN_INFO "[Q6Audio]:  " fmt "\n", ## arg)
+#else
+#define ACER_Q6_DBG(fmt, arg...) do {} while ( 0 )
+#endif
+
 struct q6_hw_info {
 	int min_gain;
 	int max_gain;
@@ -53,31 +61,30 @@ struct q6_hw_info {
 
 static struct q6_hw_info q6_audio_hw[Q6_HW_COUNT] = {
 	[Q6_HW_HANDSET] = {
-		.min_gain = -400,
+		.min_gain = -700,
 		.max_gain = 1100,
 	},
 	[Q6_HW_HEADSET] = {
-		.min_gain = -1100,
+		.min_gain = -1400,
 		.max_gain = 400,
 	},
 	[Q6_HW_SPEAKER] = {
-		.min_gain = -1000,
-		.max_gain = 500,
+		.min_gain = -700,
+		.max_gain = 400,
 	},
 	[Q6_HW_TTY] = {
-		.min_gain = 0,
-		.max_gain = 0,
+		.min_gain = -1400,
+		.max_gain = 400,
 	},
 	[Q6_HW_BT_SCO] = {
-		.min_gain = -1100,
+		.min_gain = -1400,
 		.max_gain = 400,
 	},
 	[Q6_HW_BT_A2DP] = {
-		.min_gain = -1100,
+		.min_gain = -1400,
 		.max_gain = 400,
 	},
 };
-
 static struct wake_lock wakelock;
 static struct wake_lock idlelock;
 static int idlecount;
@@ -111,10 +118,13 @@ static struct clk *sdac_clk;
 static struct q6audio_analog_ops default_analog_ops;
 static struct q6audio_analog_ops *analog_ops = &default_analog_ops;
 static uint32_t tx_clk_freq = 8000;
+static bool phone_mute = 0;
 static int tx_mute_status = 0;
 static int rx_vol_level = 100;
 static uint32_t tx_acdb = 0;
 static uint32_t rx_acdb = 0;
+static bool rx_analog_enable = 0;
+static bool tx_analog_enable = 0;
 
 void q6audio_register_analog_ops(struct q6audio_analog_ops *ops)
 {
@@ -131,7 +141,7 @@ static struct q6_device_info *q6_lookup_device(uint32_t device_id,
 			if (di->cad_id == acdb_id && di->id == device_id)
 				return di;
 			if (di->id == 0) {
-				pr_err("q6_lookup_device: bogus id 0x%08x\n",
+				pr_err("q6_lookup_device:#1 bogus id 0x%08x\n",
 					device_id);
 				return di;
 			}
@@ -142,7 +152,7 @@ static struct q6_device_info *q6_lookup_device(uint32_t device_id,
 			if (di->id == device_id)
 				return di;
 			if (di->id == 0) {
-				pr_err("q6_lookup_device: bogus id 0x%08x\n",
+				pr_err("q6_lookup_device:#2 bogus id 0x%08x\n",
 				       device_id);
 				return di;
 			}
@@ -609,14 +619,8 @@ static int audio_set_table(struct audio_client *ac,
 
 	memset(&rpc, 0, sizeof(rpc));
 	rpc.hdr.opcode = ADSP_AUDIO_IOCTL_SET_DEVICE_CONFIG_TABLE;
-	if (q6_device_to_dir(device_id) == Q6_TX) {
-		if (tx_clk_freq > 16000)
-			rpc.hdr.data = 48000;
-		else if (tx_clk_freq > 8000)
-			rpc.hdr.data = 16000;
-		else
-			rpc.hdr.data = 8000;
-	}
+	if (q6_device_to_dir(device_id) == Q6_TX)
+		rpc.hdr.data = tx_clk_freq;
 	rpc.device_id = device_id;
 	rpc.phys_addr = audio_phys;
 	rpc.phys_size = size;
@@ -699,6 +703,7 @@ static int audio_tx_mute(struct audio_client *ac, uint32_t dev_id, int mute)
 	struct adsp_set_dev_mute_command rpc;
 
 	memset(&rpc, 0, sizeof(rpc));
+	pr_info("[Q6Audio] audio_tx_mute mute_status %d\n", mute);
 	rpc.hdr.opcode = ADSP_AUDIO_IOCTL_CMD_SET_DEVICE_MUTE;
 	rpc.device_id = dev_id;
 	rpc.path = ADSP_PATH_TX;
@@ -958,6 +963,8 @@ static int qdsp6_start(struct audio_client *ac)
 
 static void audio_rx_analog_enable(int en)
 {
+	rx_analog_enable = en;
+
 	switch (audio_rx_device_id) {
 	case ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_MONO:
 	case ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO:
@@ -992,6 +999,8 @@ static void audio_rx_analog_enable(int en)
 
 static void audio_tx_analog_enable(int en)
 {
+	tx_analog_enable = en;
+
 	switch (audio_tx_device_id) {
 	case ADSP_AUDIO_DEVICE_ID_HANDSET_MIC:
 	case ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MIC:
@@ -1000,10 +1009,15 @@ static void audio_tx_analog_enable(int en)
 		break;
 	case ADSP_AUDIO_DEVICE_ID_HEADSET_MIC:
 	case ADSP_AUDIO_DEVICE_ID_TTY_HEADSET_MIC:
-	case ADSP_AUDIO_DEVICE_ID_HANDSET_DUAL_MIC:
-	case ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_DUAL_MIC:
 		if (analog_ops->ext_mic_enable)
 			analog_ops->ext_mic_enable(en);
+		break;
+	case ADSP_AUDIO_DEVICE_ID_HANDSET_DUAL_MIC:
+	case ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_DUAL_MIC:
+		if (analog_ops->int_mic_enable)
+			analog_ops->int_mic_enable(en);
+		if (analog_ops->back_mic_enable)
+			analog_ops->back_mic_enable(en);
 		break;
 	case ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC:
 		if (analog_ops->bt_sco_enable)
@@ -1017,19 +1031,12 @@ static int audio_update_acdb(uint32_t adev, uint32_t acdb_id)
 	uint32_t sample_rate;
 	int sz;
 
-	if (q6_device_to_dir(adev) == Q6_RX) {
-		rx_acdb = acdb_id;
-		sample_rate = q6_device_to_rate(adev);
-	} else {
+	sample_rate = q6_device_to_rate(adev);
 
+	if (q6_device_to_dir(adev) == Q6_RX)
+		rx_acdb = acdb_id;
+	else
 		tx_acdb = acdb_id;
-		if (tx_clk_freq > 16000)
-			sample_rate = 48000;
-		else if (tx_clk_freq > 8000)
-			sample_rate = 16000;
-		else
-			sample_rate = 8000;
-	}
 
 	if (acdb_id == 0)
 		acdb_id = q6_device_to_cad_id(adev);
@@ -1042,15 +1049,43 @@ static int audio_update_acdb(uint32_t adev, uint32_t acdb_id)
 
 static void adie_rx_path_enable(uint32_t acdb_id)
 {
-	if (audio_rx_path_id) {
-		adie_enable();
-		adie_set_path(adie, audio_rx_path_id, ADIE_PATH_RX);
+	adie_enable();
+	if (acdb_id == CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB) {
+		adie_set_path(adie, ADIE_PATH_AUXPGA_HDPH_STEREO_LB, ADIE_PATH_LOOPBACK);
+		adie_set_path(adie, ADIE_PATH_HEADSET_STEREO_RX, ADIE_PATH_RX);
+		adie_set_path_freq_plan(adie, ADIE_PATH_LOOPBACK, 48000);
 		adie_set_path_freq_plan(adie, ADIE_PATH_RX, 48000);
 
-		adie_proceed_to_stage(adie, ADIE_PATH_RX,
-				ADIE_STAGE_DIGITAL_READY);
-		adie_proceed_to_stage(adie, ADIE_PATH_RX,
-				ADIE_STAGE_DIGITAL_ANALOG_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_ANALOG_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_ANALOG_READY);
+	} else if (acdb_id == CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB2) {
+		adie_set_path(adie, ADIE_PATH_AUXPGA_LINEOUT_MONO_LB, ADIE_PATH_LOOPBACK);
+		adie_set_path(adie, ADIE_PATH_HANDSET_RX, ADIE_PATH_RX);
+		adie_set_path_freq_plan(adie, ADIE_PATH_LOOPBACK, 48000);
+		adie_set_path_freq_plan(adie, ADIE_PATH_RX, 48000);
+
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_ANALOG_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_ANALOG_READY);
+	} else {
+		if (audio_rx_device_id == ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO) {
+			adie_set_path(adie, ADIE_PATH_AUXPGA_HDPH_STEREO_LB, ADIE_PATH_LOOPBACK);
+		}
+		if (audio_rx_device_id == ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO) {
+			adie_set_path(adie, ADIE_PATH_AUXPGA_LINEOUT_MONO_LB, ADIE_PATH_LOOPBACK);
+		}
+
+		adie_set_path(adie, audio_rx_path_id, ADIE_PATH_RX);
+		adie_set_path_freq_plan(adie, ADIE_PATH_LOOPBACK, 48000);
+		adie_set_path_freq_plan(adie, ADIE_PATH_RX, 48000);
+
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_ANALOG_READY);
+		adie_proceed_to_stage(adie, ADIE_PATH_RX, ADIE_STAGE_DIGITAL_ANALOG_READY);
 	}
 }
 
@@ -1065,6 +1100,8 @@ static void q6_rx_path_enable(int reconf, uint32_t acdb_id)
 
 static void _audio_rx_path_enable(int reconf, uint32_t acdb_id)
 {
+	ACER_Q6_DBG("reconf = %d, audio_rx_path_id = 0x%x, acdb_id = 0x%x\n",
+		reconf, audio_rx_path_id, acdb_id);
 	q6_rx_path_enable(reconf, acdb_id);
 	if (audio_rx_path_id)
 		adie_rx_path_enable(acdb_id);
@@ -1075,14 +1112,17 @@ static void _audio_tx_path_enable(int reconf, uint32_t acdb_id)
 {
 	audio_tx_analog_enable(1);
 
+	ACER_Q6_DBG("reconf = %d, audio_tx_path_id = 0x%x, acdb_id = 0x%x\n", reconf, audio_tx_path_id, acdb_id);
+	if (acdb_id == CAD_HW_DEVICE_ID_FM_REC) {
+		audio_tx_path_id = q6_device_to_path(audio_tx_device_id, acdb_id);
+	}
+
 	if (audio_tx_path_id) {
 		adie_enable();
 		adie_set_path(adie, audio_tx_path_id, ADIE_PATH_TX);
 
-		if (tx_clk_freq > 16000)
+		if (tx_clk_freq > 8000)
 			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 48000);
-		else if (tx_clk_freq > 8000)
-			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 16000);
 		else
 			adie_set_path_freq_plan(adie, ADIE_PATH_TX, 8000);
 
@@ -1100,12 +1140,22 @@ static void _audio_tx_path_enable(int reconf, uint32_t acdb_id)
 	qdsp6_standby(ac_control);
 	qdsp6_start(ac_control);
 
+	if (phone_mute)
+		tx_mute_status = 1;
+	else
+		tx_mute_status = 0;
+
+	pr_info("[Q6Audio] tx_mute_status %d\n", tx_mute_status);
 	audio_tx_mute(ac_control, audio_tx_device_id, tx_mute_status);
 }
 
 static void _audio_rx_path_disable(void)
 {
 	audio_rx_analog_enable(0);
+	if (!tx_analog_enable) {
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_ANALOG_OFF);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_OFF);
+	}
 
 	if (audio_rx_path_id) {
 		adie_proceed_to_stage(adie, ADIE_PATH_RX,
@@ -1119,6 +1169,10 @@ static void _audio_rx_path_disable(void)
 static void _audio_tx_path_disable(void)
 {
 	audio_tx_analog_enable(0);
+	if (!rx_analog_enable) {
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_ANALOG_OFF);
+		adie_proceed_to_stage(adie, ADIE_PATH_LOOPBACK, ADIE_STAGE_DIGITAL_OFF);
+	}
 
 	if (audio_tx_path_id) {
 		adie_proceed_to_stage(adie, ADIE_PATH_TX,
@@ -1169,20 +1223,12 @@ static void _audio_rx_clk_enable(void)
 static void _audio_tx_clk_enable(void)
 {
 	uint32_t device_group = q6_device_to_codec(audio_tx_device_id);
-	uint32_t icodec_tx_clk_rate;
 
 	switch (device_group) {
 	case Q6_ICODEC_TX:
 		icodec_tx_clk_refcount++;
 		if (icodec_tx_clk_refcount == 1) {
-			if (tx_clk_freq > 16000)
-				icodec_tx_clk_rate = 48000;
-			else if (tx_clk_freq > 8000)
-				icodec_tx_clk_rate = 16000;
-			else
-				icodec_tx_clk_rate = 8000;
-
-			clk_set_rate(icodec_tx_clk, icodec_tx_clk_rate * 256);
+			clk_set_rate(icodec_tx_clk, tx_clk_freq * 256);
 			clk_enable(icodec_tx_clk);
 		}
 		break;
@@ -1381,6 +1427,8 @@ int q6audio_set_tx_mute(int mute)
 	}
 
 	adev = audio_tx_device_id;
+	pr_info("[Q6Audio] q6audio_set_tx_mute_status %d\n", mute);
+	phone_mute = mute;
 	rc = audio_tx_mute(ac_control, adev, mute);
 
 	/* DSP caches the requested MUTE state when it cannot apply the state
@@ -1429,9 +1477,32 @@ int q6audio_set_rx_volume(int level)
 
 static void do_rx_routing(uint32_t device_id, uint32_t acdb_id)
 {
+	ACER_Q6_DBG("pre audio_rx_device_id = 0x%x, rx_acdb = 0x%x\n", audio_rx_device_id, rx_acdb);
+	ACER_Q6_DBG("new audio_rx_device_id = 0x%x, acdb_id = 0x%x\n", device_id, acdb_id);
+
+	if (device_id == ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO)
+		tpa2018_set_headset_state(1);
+	else if (device_id == ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO)
+		tpa2018_set_headset_state(0);
+
 	if (device_id == audio_rx_device_id &&
 		audio_rx_path_id == q6_device_to_path(device_id, acdb_id)) {
+		uint32_t old_acdb = rx_acdb;
+
 		if (acdb_id != rx_acdb) {
+			//Although output device is the same, we reset path_id when last path(acdb_id) is loopback path just like FM.
+			if (old_acdb==CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB  || old_acdb==CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB2 ||
+					acdb_id==CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB || acdb_id==CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB2) {
+				audio_rx_path_id = q6_device_to_path(device_id, acdb_id);
+
+				if (audio_rx_path_refcount > 0) {
+					qdsp6_devchg_notify(ac_control, ADSP_AUDIO_RX_DEVICE, device_id);
+					_audio_rx_path_disable();
+					_audio_rx_clk_reinit(device_id, acdb_id);
+					_audio_rx_path_enable(1, acdb_id);
+				}
+				return;
+			}
 			audio_update_acdb(device_id, acdb_id);
 			qdsp6_devchg_notify(ac_control, ADSP_AUDIO_RX_DEVICE, device_id);
 			qdsp6_standby(ac_control);
@@ -1447,15 +1518,39 @@ static void do_rx_routing(uint32_t device_id, uint32_t acdb_id)
 		_audio_rx_path_enable(1, acdb_id);
 	} else {
 		audio_rx_device_id = device_id;
+#if 1
 		audio_rx_path_id = q6_device_to_path(device_id, acdb_id);
+#else
+		if(acdb_id == CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB){
+			audio_rx_path_id = ADIE_PATH_AUXPGA_HDPH_STEREO_LB;
+			pr_err("do_rx_routing() audio_rx_path_id = 0x%x \n", audio_rx_path_id);
+		} else if (acdb_id == CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB) {
+			audio_rx_path_id = ADIE_PATH_AUXPGA_LINEOUT_MONO_LB;
+			pr_err("do_rx_routing() audio_rx_path_id = 0x%x \n", audio_rx_path_id);
+		} else {
+			audio_rx_path_id = q6_device_to_path(device_id, acdb_id);
+			pr_err("do_rx_routing() audio_rx_path_id = 0x%x \n", audio_rx_path_id);
+		}
+#endif
 	}
 }
 
 static void do_tx_routing(uint32_t device_id, uint32_t acdb_id)
 {
+	ACER_Q6_DBG("pre audio_tx_device_id = 0x%x, tx_acdb = 0x%x\n", audio_tx_device_id, tx_acdb);
+	ACER_Q6_DBG("new audio_tx_device_id = 0x%x, acdb_id = 0x%x\n", device_id, acdb_id);
 	if (device_id == audio_tx_device_id &&
 		audio_tx_path_id == q6_device_to_path(device_id, acdb_id)) {
 		if (acdb_id != tx_acdb) {
+			if (acdb_id == CAD_HW_DEVICE_ID_FM_REC) {
+				audio_tx_path_id = q6_device_to_path(device_id, acdb_id);
+			}
+			audio_update_acdb(device_id, acdb_id);
+			qdsp6_devchg_notify(ac_control, ADSP_AUDIO_TX_DEVICE, device_id);
+			qdsp6_standby(ac_control);
+			qdsp6_start(ac_control);
+		} else if (acdb_id == CAD_HW_DEVICE_ID_HEADSET_MIC && tx_acdb == CAD_HW_DEVICE_ID_HEADSET_MIC) {
+			audio_tx_path_id = q6_device_to_path(device_id, acdb_id);
 			audio_update_acdb(device_id, acdb_id);
 			qdsp6_devchg_notify(ac_control, ADSP_AUDIO_TX_DEVICE, device_id);
 			qdsp6_standby(ac_control);
@@ -1471,8 +1566,19 @@ static void do_tx_routing(uint32_t device_id, uint32_t acdb_id)
 		_audio_tx_path_enable(1, acdb_id);
 	} else {
 		audio_tx_device_id = device_id;
+#if 1
 		audio_tx_path_id = q6_device_to_path(device_id, acdb_id);
 		tx_acdb = acdb_id;
+#else
+		if(acdb_id == CAD_HW_DEVICE_ID_FM_REC){
+			audio_tx_path_id = ADIE_PATH_LINE_IN_REC;
+			pr_err("do_tx_routing() audio_tx_path_id = 0x%x \n", audio_tx_path_id);
+		} else {
+			audio_tx_path_id = q6_device_to_path(device_id, acdb_id);
+			pr_err("do_tx_routing() audio_tx_path_id = 0x%x \n", audio_tx_path_id);
+		}
+		tx_acdb = acdb_id;
+#endif
 	}
 }
 
@@ -1480,7 +1586,6 @@ int q6audio_do_routing(uint32_t device_id, uint32_t acdb_id)
 {
 	if (q6audio_init())
 		return 0;
-
 	mutex_lock(&audio_path_lock);
 
 	switch(q6_device_to_dir(device_id)) {
@@ -1577,6 +1682,7 @@ struct audio_client *q6audio_open_pcm(uint32_t bufsz, uint32_t rate,
 
 	mutex_lock(&audio_path_lock);
 
+    ACER_Q6_DBG("open_pcm acdb_id = 0x%x\n", acdb_id);
 	if (ac->flags & AUDIO_FLAG_WRITE) {
 		audio_rx_path_refcount++;
 		if (audio_rx_path_refcount == 1) {
@@ -1586,9 +1692,9 @@ struct audio_client *q6audio_open_pcm(uint32_t bufsz, uint32_t rate,
 		}
 	} else {
 		/* TODO: consider concurrency with voice call */
+		tx_clk_freq = rate;
 		audio_tx_path_refcount++;
 		if (audio_tx_path_refcount == 1) {
-			tx_clk_freq = rate;
 			_audio_tx_clk_enable();
 			_audio_tx_path_enable(0, acdb_id);
 		}
@@ -1661,8 +1767,7 @@ struct audio_client *q6voice_open(uint32_t flags)
 	if (ac->flags & AUDIO_FLAG_WRITE)
 		audio_rx_path_enable(1, rx_acdb);
 	else {
-		if (!audio_tx_path_refcount)
-			tx_clk_freq = 8000;
+		tx_clk_freq = 8000;
 		audio_tx_path_enable(1, tx_acdb);
 	}
 
@@ -1782,8 +1887,7 @@ struct audio_client *q6audio_open_aac(uint32_t bufsz, uint32_t samplerate,
 	if (ac->flags & AUDIO_FLAG_WRITE)
 		audio_rx_path_enable(1, acdb_id);
 	else{
-		if (!audio_tx_path_refcount)
-			tx_clk_freq = 48000;
+		tx_clk_freq = 48000;
 		audio_tx_path_enable(1, acdb_id);
 	}
 
@@ -1822,8 +1926,7 @@ struct audio_client *q6audio_open_qcp(uint32_t bufsz, uint32_t min_rate,
 	if (ac->flags & AUDIO_FLAG_WRITE)
 		audio_rx_path_enable(1, acdb_id);
 	else{
-		if (!audio_tx_path_refcount)
-			tx_clk_freq = 8000;
+		tx_clk_freq = 8000;
 		audio_tx_path_enable(1, acdb_id);
 	}
 
@@ -1859,8 +1962,7 @@ struct audio_client *q6audio_open_amrnb(uint32_t bufsz, uint32_t enc_mode,
 	if (ac->flags & AUDIO_FLAG_WRITE)
 		audio_rx_path_enable(1, acdb_id);
 	else{
-		if (!audio_tx_path_refcount)
-			tx_clk_freq = 8000;
+		tx_clk_freq = 8000;
 		audio_tx_path_enable(1, acdb_id);
 	}
 

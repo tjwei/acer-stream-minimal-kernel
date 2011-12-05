@@ -20,6 +20,8 @@
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/wakelock.h>
+#include <linux/workqueue.h>
+#include <mach/mcu.h>
 
 enum {
 	DEBOUNCE_UNSTABLE     = BIT(0),	/* Got irq, while debouncing */
@@ -36,6 +38,17 @@ struct gpio_key_state {
 	struct gpio_input_state *ds;
 	uint8_t debounce;
 };
+#if defined (CONFIG_ACER_A3_KEYGUARD_SRS)
+struct work_struct gpio_wq;
+static int gpio_pressed = 0;
+
+static void gpio_led_work(struct work_struct *work)
+{
+	uint8_t data_buf[2] = {0};
+	data_buf[0] = gpio_pressed;
+	a3_keypad_report_key(3, data_buf);
+}
+#endif
 
 struct gpio_input_state {
 	struct gpio_event_input_devs *input_devs;
@@ -61,6 +74,9 @@ static enum hrtimer_restart gpio_event_input_timer_func(struct hrtimer *timer)
 	struct gpio_key_state *key_state;
 	unsigned long irqflags;
 	uint8_t debounce;
+#if defined (CONFIG_ACER_A3_KEYPAD)
+	int key_code = 0;
+#endif
 
 #if 0
 	key_entry = kp->keys_info->keymap;
@@ -126,8 +142,36 @@ static enum hrtimer_restart gpio_event_input_timer_func(struct hrtimer *timer)
 			pr_info("gpio_keys_scan_keys: key %x-%x, %d (%d) "
 				"changed to %d\n", ds->info->type,
 				key_entry->code, i, key_entry->gpio, pressed);
+#if defined (CONFIG_ACER_A3_KEYPAD)
+		key_code = key_entry->code;
+#if defined (CONFIG_ACER_A3_KEYGUARD_SRS)
+		gpio_pressed = pressed;
+#endif
+#if defined (CONFIG_ACER_A3_KEYGUARD_SRS)
+		if( key_entry->gpio==40 && mcu_probe_check() ) /* HOME_KEY */
+#else
+		if( key_entry->gpio==40 ) /* HOME_KEY */
+#endif
+		{
+#if defined (CONFIG_ACER_A3_KEYGUARD_SRS)
+			schedule_work(&gpio_wq);
+#endif
+			if(a3_simple_test_report() || a3_hdmi_nemo_ap_report())
+				key_code = KEY_SWITCHVIDEOMODE;
+		}
+		else if( key_entry->gpio==35 ) /* POWER_KEY */
+		{
+			if(a3_hdmi_nemo_ap_report())
+				key_code = KEY_KBDILLUMTOGGLE;
+		}
+
+		input_event(ds->input_devs->dev[key_entry->dev], ds->info->type,
+			    key_code, pressed);
+#else
+
 		input_event(ds->input_devs->dev[key_entry->dev], ds->info->type,
 			    key_entry->code, pressed);
+#endif
 	}
 
 #if 0
@@ -207,6 +251,9 @@ static int gpio_event_input_request_irqs(struct gpio_input_state *ds)
 	unsigned long req_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
 
 	for (i = 0; i < ds->info->keymap_size; i++) {
+		/* Workaround: To prevent the GPIO floating */
+		if(ds->info->keymap[i].gpio==19 || ds->info->keymap[i].gpio==20)
+			break;
 		err = irq = gpio_to_irq(ds->info->keymap[i].gpio);
 		if (err < 0)
 			goto err_gpio_get_irq_num_failed;
@@ -321,6 +368,9 @@ int gpio_event_input_func(struct gpio_event_input_devs *input_devs,
 			"mode\n", input_devs->dev[0]->name,
 			(input_devs->count > 1) ? "..." : "",
 			ret == 0 ? "interrupt" : "polling");
+#if defined (CONFIG_ACER_A3_KEYGUARD_SRS)
+		INIT_WORK(&gpio_wq, gpio_led_work);
+#endif
 
 		hrtimer_init(&ds->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 		ds->timer.function = gpio_event_input_timer_func;

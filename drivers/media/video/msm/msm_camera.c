@@ -53,6 +53,9 @@ static dev_t msm_devno;
 static LIST_HEAD(msm_sensors);
 struct  msm_control_device *g_v4l2_control_device;
 int g_v4l2_opencnt;
+#if defined(CONFIG_MACH_ACER_A3)
+static int get_pict_abort;
+#endif
 
 #define __CONTAINS(r, v, l, field) ({				\
 	typeof(r) __r = r;					\
@@ -648,6 +651,13 @@ static int msm_control(struct msm_control_device *ctrl_pmsm,
 	qcmd.on_heap = 0;
 	qcmd.type = MSM_CAM_Q_CTRL;
 	qcmd.command = &udata;
+#if defined(CONFIG_MACH_ACER_A3)
+	if(udata.type == 42) {
+		printk("the type of data is  %hu\n ",udata.type);
+		get_pict_abort = 1;
+		wake_up(&sync->pict_q.wait);
+	}
+#endif
 
 	if (udata.length) {
 		if (udata.length > sizeof(data)) {
@@ -2231,6 +2241,9 @@ static int msm_open_common(struct inode *inode, struct file *filep,
 	int rc;
 	struct msm_device *pmsm =
 		container_of(inode->i_cdev, struct msm_device, cdev);
+#if defined(CONFIG_MACH_ACER_A3)
+	get_pict_abort = 0;
+#endif
 
 	CDBG("%s: open %s\n", __func__, filep->f_path.dentry->d_name.name);
 
@@ -2436,8 +2449,11 @@ static int msm_sync_init(struct msm_sync *sync,
 	msm_queue_init(&sync->frame_q, "frame");
 	msm_queue_init(&sync->pict_q, "pict");
 
+#if defined(CONFIG_MACH_ACER_A3)
+	wake_lock_init(&sync->wake_lock, WAKE_LOCK_SUSPEND, "msm_camera");
+#else
 	wake_lock_init(&sync->wake_lock, WAKE_LOCK_IDLE, "msm_camera");
-
+#endif
 	rc = msm_camio_probe_on(pdev);
 	if (rc < 0)
 		return rc;

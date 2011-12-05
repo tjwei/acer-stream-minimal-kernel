@@ -15,6 +15,9 @@
  *
  */
 
+#if defined (CONFIG_ACER_DEBUG)
+#define DEBUG
+#endif
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -46,6 +49,7 @@
 #include <mach/clk.h>
 #include <mach/dma.h>
 #include <mach/htc_pwrsink.h>
+#include <mach/gpio.h>
 
 
 #include "msm_sdcc.h"
@@ -71,8 +75,23 @@ static int msmsdcc_auto_suspend(struct mmc_host *, int);
 static unsigned int msmsdcc_fmin = 144000;
 static unsigned int msmsdcc_fmid = 24576000;
 static unsigned int msmsdcc_temp = 25000000;
-static unsigned int msmsdcc_fmax = 49152000;
+#if defined(CONFIG_MACH_Q8K_A3_EVT)
+static unsigned int msmsdcc_fmax = 40000000;
+#else
+/* HW EE ESD issue, set to 45MHz */
+static unsigned int msmsdcc_fmax = 45000000;
+#endif
 static unsigned int msmsdcc_pwrsave = 1;
+#if defined (CONFIG_MACH_ACER_A3)
+unsigned int g_IS_SD_CMD25 = 0;
+unsigned int g_IsWifiModuleLoaded = 0;
+EXPORT_SYMBOL(g_IS_SD_CMD25);
+EXPORT_SYMBOL(g_IsWifiModuleLoaded);
+#endif
+
+#if defined (CONFIG_MACH_ACER_A3)
+#define SDCC1_DATA_0	54
+#endif
 
 #define DUMMY_52_STATE_NONE		0
 #define DUMMY_52_STATE_SENT		1
@@ -327,8 +346,16 @@ msmsdcc_dma_complete_tlet(unsigned long data)
 #endif
 			mmc_request_done(host->mmc, mrq);
 			return;
-		} else
+		} else {
+#if defined (CONFIG_MACH_ACER_A3)
+			while ((host->pdev_id == 1) &&
+				(mrq->data->flags & MMC_DATA_WRITE) &&
+				(gpio_get_value(SDCC1_DATA_0) == 0)) {
+				udelay(5);
+			}
+#endif
 			msmsdcc_start_command(host, mrq->data->stop, 0);
+		}
 	}
 
 out:
@@ -353,6 +380,9 @@ msmsdcc_dma_complete_func(struct msm_dmov_cmd *cmd,
 
 static int validate_dma(struct msmsdcc_host *host, struct mmc_data *data)
 {
+	if ((host->pdev_id == 2) && (data->flags & MMC_DATA_READ))
+		return -ENOENT;
+
 	if (host->dma.channel == -1)
 		return -ENOENT;
 
@@ -555,6 +585,10 @@ msmsdcc_start_data(struct msmsdcc_host *host, struct mmc_data *data,
 	do_div(clks, 1000000000UL);
 	timeout = data->timeout_clks + (unsigned int)clks*2 ;
 
+#if defined (CONFIG_MACH_ACER_A3)
+	timeout *= 10;
+#endif
+
 	if (datactrl & MCI_DPSM_DMAENABLE) {
 		/* Save parameters for the exec function */
 		host->cmd_timeout = timeout;
@@ -596,6 +630,10 @@ msmsdcc_start_command(struct msmsdcc_host *host, struct mmc_command *cmd, u32 c)
 {
 	msmsdcc_start_command_deferred(host, cmd, &c);
 	msmsdcc_start_command_exec(host, cmd->arg, c);
+#if defined (CONFIG_MACH_ACER_A3)
+	if (cmd->opcode == 12)
+		g_IS_SD_CMD25 = 0;
+#endif
 }
 
 static void
@@ -926,6 +964,13 @@ msmsdcc_irq(int irq, void *dev_id)
 						timer |= msmsdcc_request_end(
 							  host, data->mrq);
 					else {
+#if defined (CONFIG_MACH_ACER_A3)
+						while ((host->pdev_id == 1) &&
+							(data->flags & MMC_DATA_WRITE) &&
+							(gpio_get_value(SDCC1_DATA_0) == 0)) {
+							udelay(5);
+						}
+#endif
 						msmsdcc_start_command(host,
 							      data->stop, 0);
 						timer = 1;
@@ -962,6 +1007,10 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	WARN_ON(host->curr.mrq != NULL);
 
         WARN_ON(host->pwr == 0);
+#if defined (CONFIG_MACH_ACER_A3)
+	if (mrq->cmd->opcode == 25)
+		g_IS_SD_CMD25 = 1;
+#endif
 
 	spin_lock_irqsave(&host->lock, flags);
 
@@ -1267,10 +1316,12 @@ static void msmsdcc_early_suspend(struct early_suspend *h)
 		container_of(h, struct msmsdcc_host, early_suspend);
 	unsigned long flags;
 
+	pr_debug("%s ++ entering\n", __func__);
 	spin_lock_irqsave(&host->lock, flags);
 	host->polling_enabled = host->mmc->caps & MMC_CAP_NEEDS_POLL;
 	host->mmc->caps &= ~MMC_CAP_NEEDS_POLL;
 	spin_unlock_irqrestore(&host->lock, flags);
+	pr_debug("%s -- leaving\n", __func__);
 };
 static void msmsdcc_late_resume(struct early_suspend *h)
 {
@@ -1278,12 +1329,14 @@ static void msmsdcc_late_resume(struct early_suspend *h)
 		container_of(h, struct msmsdcc_host, early_suspend);
 	unsigned long flags;
 
+	pr_debug("%s ++ entering\n", __func__);
 	if (host->polling_enabled) {
 		spin_lock_irqsave(&host->lock, flags);
 		host->mmc->caps |= MMC_CAP_NEEDS_POLL;
 		mmc_detect_change(host->mmc, 0);
 		spin_unlock_irqrestore(&host->lock, flags);
 	}
+	pr_debug("%s -- leaving\n", __func__);
 };
 #endif
 
@@ -1629,6 +1682,7 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 	struct mmc_host *mmc = mmc_get_drvdata(dev);
 	struct msmsdcc_host *host = mmc_priv(mmc);
 	int rc = 0;
+	pr_debug("%s ++ entering\n", __func__);
 
 #ifdef CONFIG_MMC_AUTO_SUSPEND
 	if (test_and_set_bit(0, &host->suspended))
@@ -1653,6 +1707,7 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 		if (host->plat->sdiowakeup_irq)
 			enable_irq(host->plat->sdiowakeup_irq);
 	}
+	pr_debug("%s -- leaving\n", __func__);
 	return rc;
 }
 
@@ -1662,6 +1717,7 @@ msmsdcc_resume(struct platform_device *dev)
 	struct mmc_host *mmc = mmc_get_drvdata(dev);
 	struct msmsdcc_host *host = mmc_priv(mmc);
 	unsigned long flags;
+	pr_debug("%s ++ entering\n", __func__);
 
 #ifdef CONFIG_MMC_AUTO_SUSPEND
 	if (!test_and_clear_bit(0, &host->suspended))
@@ -1694,6 +1750,7 @@ msmsdcc_resume(struct platform_device *dev)
 			enable_irq(host->plat->status_irq);
 
 	}
+	pr_debug("%s -- leaving\n", __func__);
 	return 0;
 }
 #else
@@ -1736,17 +1793,20 @@ static int __init msmsdcc_init(void)
 		return ret;
 	}
 #endif
+	pr_debug("%s -- leaving\n", __func__);
 	return platform_driver_register(&msmsdcc_driver);
 }
 
 static void __exit msmsdcc_exit(void)
 {
+	pr_debug("%s ++ entering\n", __func__);
 	platform_driver_unregister(&msmsdcc_driver);
 
 #if defined(CONFIG_DEBUG_FS)
 	debugfs_remove(debugfs_file);
 	debugfs_remove(debugfs_dir);
 #endif
+	pr_debug("%s -- leaving\n", __func__);
 }
 
 #ifndef MODULE

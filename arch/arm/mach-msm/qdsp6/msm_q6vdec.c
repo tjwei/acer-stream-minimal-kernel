@@ -69,7 +69,7 @@
 #define TRACE(fmt,x...)		do { } while (0)
 #endif
 
-#define MAX_SUPPORTED_INSTANCES 1
+#define MAX_SUPPORTED_INSTANCES 3
 
 /*
  *why magic number 300?
@@ -279,6 +279,23 @@ static struct vdec_mem_list *vdec_get_mem_from_list(struct vdec_data *vd,
 		return NULL;
 
 }
+static int vdec_setproperty(struct vdec_data *vd, void *argp)
+{
+	struct vdec_property_info property;
+	int res;
+
+   if (copy_from_user(&property, argp, sizeof(struct vdec_property_info)))
+		return -1;
+
+	res = dal_call_f6(vd->vdec_handle, VDEC_DALRPC_SETPROPERTY,
+      property.id, &(property.property), sizeof(union vdec_property));
+	if (res)
+		TRACE("Set Property failed");
+	else
+		TRACE("Set Property succeeded");
+
+	return 0;
+}
 static int vdec_performance_change_request(struct vdec_data *vd, void* argp)
 {
 	u32 request_type;
@@ -297,6 +314,11 @@ static int vdec_performance_change_request(struct vdec_data *vd, void* argp)
 		return ret;
 	}
 	return ret;
+}
+static int vdec_getproperty(struct vdec_data *vd, void *argp, uint32_t cmd_idx)
+{
+	/*dal_call_f11(vd->vdec_handle, VDEC_DALRPC_GETPROPERTY,);*/
+	return 0;
 }
 static int vdec_initialize(struct vdec_data *vd, void *argp)
 {
@@ -756,6 +778,18 @@ static long vdec_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case VDEC_IOCTL_PERFORMANCE_CHANGE_REQ:
 		ret = vdec_performance_change_request(vd, argp);
 		break;
+       case VDEC_IOCTL_GETPROPERTY:
+		TRACE("VDEC_IOCTL_GETPROPERTY (pid=%d tid=%d)\n",
+		      current->group_leader->pid, current->pid);
+		ret = vdec_getproperty(vd, argp,
+				0);
+		break;
+	case VDEC_IOCTL_SETPROPERTY:
+		TRACE("VDEC_IOCTL_SETPROPERTY (pid=%d tid=%d)\n",
+		      current->group_leader->pid, current->pid);
+		ret = vdec_setproperty(vd, argp);
+		break;
+
 	default:
 		pr_err("%s: invalid ioctl!\n", __func__);
 		ret = -EINVAL;

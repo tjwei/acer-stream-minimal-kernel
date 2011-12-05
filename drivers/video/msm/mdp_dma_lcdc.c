@@ -55,6 +55,9 @@
  *
  */
 
+#if defined(CONFIG_ACER_DEBUG)
+#define DEBUG
+#endif
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -72,6 +75,7 @@
 #include <linux/spinlock.h>
 
 #include <linux/fb.h>
+#include <linux/gpio.h>
 
 #include "mdp.h"
 #include "msm_fb.h"
@@ -82,22 +86,30 @@
 #include <mach/vreg.h>
 #include <linux/gpio.h>
 #include "lcdc_samsung.h"
-//#include "../adi752x.h"
+#include "../adi752x.h"
 #endif/* CONFIG_MACH_ACER_A3 */
+
+#if (defined(CONFIG_MACH_ACER_A1))
+#include <mach/board.h>
+#include <mach/vreg.h>
+#include <linux/gpio.h>
+#define GPIO_LCD_RST  118
+#define LCD_RST_HI         gpio_set_value(GPIO_LCD_RST,1)
+#define LCD_RST_LO         gpio_set_value(GPIO_LCD_RST,0)
+#endif
 
 #ifdef CONFIG_FB_MSM_MDP40
 #define LCDC_BASE	0xC0000
-#define DTV_BASE	0xD0000
-#define DMA_E_BASE      0xB0000
 #else
 #define LCDC_BASE	0xE0000
 #endif
 
-#define DMA_P_BASE      0x90000
-
 extern spinlock_t mdp_spin_lock;
 #ifndef CONFIG_FB_MSM_MDP40
 extern uint32 mdp_intr_mask;
+#endif
+#if (defined(CONFIG_MACH_ACER_A1))
+extern int ReadID(void);
 #endif
 
 int first_pixel_start_x;
@@ -149,9 +161,6 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	struct fb_var_screeninfo *var;
 	struct fb_fix_screeninfo *fix;
 	struct msm_fb_data_type *mfd;
-	uint32 dma_base;
-	uint32 timer_base = LCDC_BASE;
-	uint32 block = MDP_DMA2_BLOCK;
 	int ret;
 
 #if (defined(CONFIG_MACH_ACER_A3))
@@ -165,9 +174,38 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	if (rc)
 		printk(KERN_ERR "[SAMSUNG]%s: return val: %d \n",__func__, rc);
 
-	//set_hdmi_platform_device(pdev);
+	set_hdmi_platform_device(pdev);
 #endif /* CONFIG_MACH_ACER_A3 */
 
+#if (defined(CONFIG_MACH_ACER_A1))
+	int rc = 0;
+
+	vreg_vdd = vreg_get(NULL, "gp5");
+	vreg_vddio = vreg_get(NULL, "gp1");
+
+	if ((lcm_id < 2) && (hw_version <= 2))
+		rc = vreg_set_level(vreg_vddio, 1800);
+	else
+		rc = vreg_set_level(vreg_vddio, 2600);
+	if (!rc)
+		rc = vreg_enable(vreg_vddio);
+	if (rc)
+		printk(KERN_ERR "%s: return val: %d \n",
+				__func__, rc);
+	pr_debug("%s GP1 Enabled[2600]\n", __func__);
+
+	if (lcm_id < 2)
+		rc = vreg_set_level(vreg_vdd, 2400); /* CUT 1.1 */
+	else
+		rc = vreg_set_level(vreg_vdd, 2800);
+	if (!rc)
+		rc = vreg_enable(vreg_vdd);
+	if (rc)
+		printk(KERN_ERR "%s: return val: %d \n",
+				__func__, rc);
+	pr_debug("%s GP5 Enabled[2400]\n", __func__);
+#endif
+	pr_info("%s ++ entering\n", __func__);
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
 	if (!mfd)
@@ -189,25 +227,33 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	if (fix->line_length != FB_XRES * bpp) {
 		fix->line_length = FB_XRES * bpp;
 	}
+	buf +=
+	    (fbi->var.xoffset + fbi->var.yoffset * FB_XRES) * bpp;
+#else
+	buf +=
+	    (fbi->var.xoffset + fbi->var.yoffset * fbi->var.xres_virtual) * bpp;
 #endif
-	buf += fbi->var.xoffset * bpp + fbi->var.yoffset * fbi->fix.line_length;
 
 #if(defined(CONFIG_MACH_ACER_A3))
 	if(hw_version > 0) {
 		dma2_cfg_reg = DMA_PACK_ALIGN_MSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
-	} else 
-#endif
+	} else {
 	  dma2_cfg_reg = DMA_PACK_ALIGN_LSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
+	}
+#else
+	  dma2_cfg_reg = DMA_PACK_ALIGN_LSB | DMA_DITHER_EN | DMA_OUT_SEL_LCDC;
+#endif /* CONFIG_MACH_ACER_A3 */
 
 	if (mfd->fb_imgType == MDP_BGR_565)
 		dma2_cfg_reg |= DMA_PACK_PATTERN_BGR;
 #ifdef CONFIG_MACH_ACER_A3
 	else if (mfd->fb_imgType == MDP_RGB_565)
 		dma2_cfg_reg |= DMA_PACK_PATTERN_RGB;
+#endif
 	else
+#ifdef CONFIG_MACH_ACER_A3
 		dma2_cfg_reg |= DMA_PACK_PATTERN_BGR;
 #else
-	else
 		dma2_cfg_reg |= DMA_PACK_PATTERN_RGB;
 #endif
 
@@ -247,33 +293,24 @@ int mdp_lcdc_on(struct platform_device *pdev)
 
 	/* DMA register config */
 
-	dma_base = DMA_P_BASE;
-
-#ifdef CONFIG_FB_MSM_MDP40
-	if (mfd->panel.type == HDMI_PANEL)
-		dma_base = DMA_E_BASE;
-#endif
-
 	/* starting address */
-	MDP_OUTP(MDP_BASE + dma_base + 0x8, (uint32) buf);
+	MDP_OUTP(MDP_BASE + 0x90008, (uint32) buf);
 	/* active window width and height */
 #ifdef CONFIG_MACH_ACER_A3
-	MDP_OUTP(MDP_BASE + dma_base + 0x4, ((fbi->var.yres) << 16) |
-						OS_XRES);
+	MDP_OUTP(MDP_BASE + 0x90004, ((fbi->var.yres) << 16) | OS_XRES);
 #else
-	MMDP_OUTP(MDP_BASE + dma_base + 0x4, ((fbi->var.yres) << 16) |
-						(fbi->var.xres));
+	MDP_OUTP(MDP_BASE + 0x90004, ((fbi->var.yres) << 16) | (fbi->var.xres));
 #endif
 	/* buffer ystride */
 #ifdef CONFIG_MACH_ACER_A3
-	MDP_OUTP(MDP_BASE + dma_base + 0xc, OS_XRES * bpp);
+	MDP_OUTP(MDP_BASE + 0x9000c, OS_XRES * bpp);
 #else
-	MDP_OUTP(MDP_BASE + dma_base + 0xc, fbi->fix.line_length);
+	MDP_OUTP(MDP_BASE + 0x9000c, fbi->var.xres_virtual * bpp);
 #endif
 	/* x/y coordinate = always 0 for lcdc */
-	MDP_OUTP(MDP_BASE + dma_base + 0x10, 0);
+	MDP_OUTP(MDP_BASE + 0x90010, 0);
 	/* dma config */
-	MDP_OUTP(MDP_BASE + dma_base, dma2_cfg_reg);
+	MDP_OUTP(MDP_BASE + 0x90000, dma2_cfg_reg);
 
 	/*
 	 * LCDC timing setting
@@ -338,20 +375,12 @@ int mdp_lcdc_on(struct platform_device *pdev)
 #endif
 
 #ifdef CONFIG_FB_MSM_MDP40
-	if (mfd->panel.type == HDMI_PANEL) {
-		block = MDP_DMA_E_BLOCK;
-		timer_base = DTV_BASE;
-		hsync_polarity = 0;
-		vsync_polarity = 0;
-	} else {
-		hsync_polarity = 1;
-		vsync_polarity = 1;
-	}
-
+	hsync_polarity = 1;
+	vsync_polarity = 1;
 	lcdc_underflow_clr |= 0x80000000;	/* enable recovery */
 #else
-	hsync_polarity = 0;
-	vsync_polarity = 0;
+	hsync_polarity = 1;
+	vsync_polarity = 1;
 #endif
 
 #if(defined(CONFIG_MACH_ACER_A3))
@@ -363,94 +392,83 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	ctrl_polarity =
 	    (data_en_polarity << 2) | (vsync_polarity << 1) | (hsync_polarity);
 
-	MDP_OUTP(MDP_BASE + timer_base + 0x4, hsync_ctrl);
-	MDP_OUTP(MDP_BASE + timer_base + 0x8, vsync_period);
-	MDP_OUTP(MDP_BASE + timer_base + 0xc, vsync_pulse_width * hsync_period);
-	if (timer_base == LCDC_BASE) {
-		MDP_OUTP(MDP_BASE + timer_base + 0x10, display_hctl);
-		MDP_OUTP(MDP_BASE + timer_base + 0x14, display_v_start);
-		MDP_OUTP(MDP_BASE + timer_base + 0x18, display_v_end);
-		MDP_OUTP(MDP_BASE + timer_base + 0x28, lcdc_border_clr);
-		MDP_OUTP(MDP_BASE + timer_base + 0x2c, lcdc_underflow_clr);
-		MDP_OUTP(MDP_BASE + timer_base + 0x30, lcdc_hsync_skew);
-		MDP_OUTP(MDP_BASE + timer_base + 0x38, ctrl_polarity);
-		MDP_OUTP(MDP_BASE + timer_base + 0x1c, active_hctl);
-		MDP_OUTP(MDP_BASE + timer_base + 0x20, active_v_start);
-		MDP_OUTP(MDP_BASE + timer_base + 0x24, active_v_end);
-	} else {
-		MDP_OUTP(MDP_BASE + timer_base + 0x18, display_hctl);
-		MDP_OUTP(MDP_BASE + timer_base + 0x1c, display_v_start);
-		MDP_OUTP(MDP_BASE + timer_base + 0x20, display_v_end);
-		MDP_OUTP(MDP_BASE + timer_base + 0x40, lcdc_border_clr);
-		MDP_OUTP(MDP_BASE + timer_base + 0x44, lcdc_underflow_clr);
-		MDP_OUTP(MDP_BASE + timer_base + 0x48, lcdc_hsync_skew);
-		MDP_OUTP(MDP_BASE + timer_base + 0x50, ctrl_polarity);
-		MDP_OUTP(MDP_BASE + timer_base + 0x2c, active_hctl);
-		MDP_OUTP(MDP_BASE + timer_base + 0x30, active_v_start);
-		MDP_OUTP(MDP_BASE + timer_base + 0x38, active_v_end);
-	}
+#if (defined(CONFIG_MACH_ACER_A1))
+	MDP_OUTP(MDP_BASE + LCDC_BASE , 0);
+#endif
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x4, hsync_ctrl);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x8, vsync_period);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0xc, vsync_pulse_width * hsync_period);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x10, display_hctl);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x14, display_v_start);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x18, display_v_end);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x28, lcdc_border_clr);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x2c, lcdc_underflow_clr);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x30, lcdc_hsync_skew);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x38, ctrl_polarity);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x1c, active_hctl);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x20, active_v_start);
+	MDP_OUTP(MDP_BASE + LCDC_BASE + 0x24, active_v_end);
+#if (defined(CONFIG_MACH_ACER_A1))
+	MDP_OUTP(MDP_BASE + LCDC_BASE , 1);
+#endif
 
 	ret = panel_next_on(pdev);
 	if (ret == 0) {
 		/* enable LCDC block */
-		MDP_OUTP(MDP_BASE + timer_base, 1);
-		mdp_pipe_ctrl(block, MDP_BLOCK_POWER_ON, FALSE);
+		MDP_OUTP(MDP_BASE + LCDC_BASE, 1);
+		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 #ifdef CONFIG_MACH_ACER_A3
 	panel_poweron(1);
 #endif
+	pr_info("%s -- leaving\n", __func__);
+
 	return ret;
 }
 
 int mdp_lcdc_off(struct platform_device *pdev)
 {
 	int ret = 0;
-	struct msm_fb_data_type *mfd;
-	uint32 timer_base = LCDC_BASE;
-	uint32 block = MDP_DMA2_BLOCK;
 
-	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
-
-#ifdef CONFIG_FB_MSM_MDP40
-	if (mfd->panel.type == HDMI_PANEL) {
-		block = MDP_DMA_E_BLOCK;
-		timer_base = DTV_BASE;
-	}
-#endif
-
+	pr_info("%s ++ entering\n", __func__);
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	MDP_OUTP(MDP_BASE + timer_base, 0);
+	MDP_OUTP(MDP_BASE + LCDC_BASE, 0);
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-	mdp_pipe_ctrl(block, MDP_BLOCK_POWER_OFF, FALSE);
+	mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
 	ret = panel_next_off(pdev);
 
 	/* delay to make sure the last frame finishes */
 	mdelay(100);
+#if (defined(CONFIG_MACH_ACER_A1))
+	vreg_disable(vreg_vdd);
+	pr_debug("%s GP5 Disabled\n", __func__);
+	vreg_disable(vreg_vddio);
+	pr_debug("%s GP1 Disabled\n", __func__);
+
+	LCD_RST_LO;
+#endif
 #if (defined(CONFIG_MACH_ACER_A3))
 	vreg_disable(vreg_vdd);
 	pr_debug("[SAMSUNG]%s GP5 Disabled\n", __func__);
 	vreg_disable(vreg_vddio);
 	pr_debug("[SAMSUNG]%s GP1 Disabled\n", __func__);
 #endif /* CONFIG_MACH_ACER_A3 */
+	pr_info("%s -- leaving\n", __func__);
 
 	return ret;
 }
+
 void mdp_lcdc_update(struct msm_fb_data_type *mfd)
 {
 	struct fb_info *fbi = mfd->fbi;
 	uint8 *buf;
 	int bpp;
 	unsigned long flag;
-	uint32 dma_base;
-	int irq_block = MDP_DMA2_TERM;
-#ifdef CONFIG_FB_MSM_MDP40
-	int intr = INTR_DMA_P_DONE;
-#endif
 
 	if (!mfd->panel_power_on)
 		return;
@@ -458,30 +476,24 @@ void mdp_lcdc_update(struct msm_fb_data_type *mfd)
 	/* no need to power on cmd block since it's lcdc mode */
 	bpp = fbi->var.bits_per_pixel / 8;
 	buf = (uint8 *) fbi->fix.smem_start;
-	buf += fbi->var.xoffset * bpp +
-		fbi->var.yoffset * fbi->fix.line_length;
-
-	dma_base = DMA_P_BASE;
-
-#ifdef CONFIG_FB_MSM_MDP40
-	if (mfd->panel.type == HDMI_PANEL) {
-		intr = INTR_DMA_E_DONE;
-		irq_block = MDP_DMA_E_TERM;
-		dma_base = DMA_E_BASE;
-	}
+#ifdef CONFIG_MACH_ACER_A3
+	buf +=
+	    (fbi->var.xoffset + fbi->var.yoffset * FB_XRES) * bpp;
+#else
+	buf +=
+	    (fbi->var.xoffset + fbi->var.yoffset * fbi->var.xres_virtual) * bpp;
 #endif
-
 	/* starting address */
-	MDP_OUTP(MDP_BASE + dma_base + 0x8, (uint32) buf);
+	MDP_OUTP(MDP_BASE + 0x90008, (uint32) buf);
 
 	/* enable LCDC irq */
 	spin_lock_irqsave(&mdp_spin_lock, flag);
-	mdp_enable_irq(irq_block);
+	mdp_enable_irq(MDP_DMA2_TERM);
 	INIT_COMPLETION(mfd->dma->comp);
 	mfd->dma->waiting = TRUE;
 #ifdef CONFIG_FB_MSM_MDP40
-	outp32(MDP_INTR_CLEAR, intr);
-	mdp_intr_mask |= intr;
+	outp32(MDP_INTR_CLEAR, INTR_DMA_P_DONE);
+	mdp_intr_mask |= INTR_DMA_P_DONE;
 	outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 #else
 	outp32(MDP_INTR_CLEAR, LCDC_FRAME_START);
@@ -490,5 +502,5 @@ void mdp_lcdc_update(struct msm_fb_data_type *mfd)
 #endif
 	spin_unlock_irqrestore(&mdp_spin_lock, flag);
 	wait_for_completion_killable(&mfd->dma->comp);
-	mdp_disable_irq(irq_block);
+	mdp_disable_irq(MDP_DMA2_TERM);
 }

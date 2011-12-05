@@ -94,7 +94,7 @@ static int __init lcdc_prism_init(void)
 	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 
-	ret = lcdc_device_register(&pinfo);
+	ret = lcdc_device_register(&pinfo, NULL);
 	if (ret)
 		printk(KERN_ERR "%s: failed to register device!\n", __func__);
 

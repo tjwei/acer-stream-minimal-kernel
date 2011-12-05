@@ -158,6 +158,10 @@ config ARCH_MTD_XIP
 config GENERIC_HARDIRQS_NO__DO_IRQ
 	def_bool y
 
+config ACER_A3_KEYGUARD_SRS
+ 	default n
+ 	tristate "A3 KEYGUARD SRS SPEC"
+
 if OPROFILE
 
 config OPROFILE_ARMV6

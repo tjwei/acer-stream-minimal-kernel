@@ -18,6 +18,9 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/compatmac.h>
+#if defined(CONFIG_MACH_ACER_A3)
+#include <linux/proc_fs.h>
+#endif
 
 /* Our partition linked list */
 static LIST_HEAD(mtd_partitions);
@@ -38,6 +41,27 @@ struct mtd_part {
  */
 #define PART(x)  ((struct mtd_part *)(x))
 
+#if defined(CONFIG_MACH_ACER_A3)
+/* For DINFO Usage */
+#define DINFO_LENGTH			131072
+#define DINFO_BLOCK_TOTAL		2
+#define DINFO_CHECKSUM_OFFSET	0
+#define DINFO_CHECKSUM_LENGTH	4
+#define DINFO_LENGTH_OFFSET		(DINFO_CHECKSUM_OFFSET+DINFO_CHECKSUM_LENGTH)
+#define DINFO_LENGTH_LENGTH		4
+#define DINFO_CONTENT_OFFSET	(DINFO_LENGTH_OFFSET+DINFO_LENGTH_LENGTH)
+#define SRS_PROC_ENTRY_NAME		"srs0"
+static char* buffer_dinfo = NULL;
+
+ssize_t srs_read(struct file *file, char *buf, size_t size, loff_t *ppos);
+int create_srs_proc_entry(struct mtd_info *mtd);
+inline unsigned int read_checksum(unsigned char* buff, int size);
+unsigned int calc_checksum(unsigned char* buff, int size);
+
+struct file_operations srs_fops = {
+	read:srs_read,
+};
+#endif
 
 /*
  * MTD methods which simply translate the effective address and pass through
@@ -520,8 +544,15 @@ int add_mtd_partitions(struct mtd_info *master,
 		if (!slave)
 			return -ENOMEM;
 		cur_offset = slave->offset + slave->mtd.size;
+#if defined(CONFIG_MACH_ACER_A3)
+		/* When MTD add partition, we use the information to create a proc entry containing dinfo. */
+		if(strcmp("dinfo", slave->mtd.name) == 0){
+			if( create_srs_proc_entry(&slave->mtd) ){
+				printk(KERN_ERR"SRS PROC ENTRY CREATE FAILED!\n");
+			}
+		}
+#endif
 	}
-
 	return 0;
 }
 EXPORT_SYMBOL(add_mtd_partitions);
@@ -590,3 +621,113 @@ int parse_mtd_partitions(struct mtd_info *master, const char **types,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(parse_mtd_partitions);
+
+#if defined(CONFIG_MACH_ACER_A3)
+/* For DINFO Function */
+
+/* DINFO Read function ... */
+ssize_t srs_read(struct file *file, char *buf, size_t size, loff_t *ppos)
+{
+	int len = 0;
+	if(!buffer_dinfo)
+		return -1;
+	len = size;
+	if(len + *ppos > DINFO_LENGTH) //over the limit
+		len = DINFO_LENGTH - *ppos;
+
+	memcpy(buf, buffer_dinfo+(int)(*ppos), len);
+
+	pr_debug("srs_read: size=%d, *ppos=%d, len = %d\n", size, (int)*ppos, len);
+
+	*ppos += len;
+	return len;
+}
+
+/* for creating srs proc entry ... */
+int create_srs_proc_entry(struct mtd_info *mtd)
+{
+	struct proc_dir_entry *entry = NULL;
+	int len = 0;
+	int i =0;
+
+	unsigned int ori_checksum=0, real_checksum=0;
+
+	buffer_dinfo = kzalloc(DINFO_LENGTH, GFP_KERNEL);
+
+	for(i=0; i< DINFO_BLOCK_TOTAL; i++){
+		if(!part_block_isbad(mtd, i*DINFO_LENGTH)){
+			part_read(mtd, i*DINFO_LENGTH, DINFO_LENGTH, &len, buffer_dinfo);
+			pr_debug("SRS: Read dinfo partition block %d len=%d\n", i, len);
+			break;
+		}
+	}
+	if(i == DINFO_BLOCK_TOTAL){
+		printk(KERN_ERR"SRS: All dinfo blocks are bad!\n");
+		return -1;
+	}
+
+	if(len <= 0){
+		printk(KERN_ERR"SRS: Cannot read dinfo partition!\n");
+		return -2;
+	}
+
+	ori_checksum = read_checksum(buffer_dinfo, len);
+	real_checksum = calc_checksum(buffer_dinfo, len);
+	if(ori_checksum != real_checksum){
+		printk(KERN_ERR"SRS: Checksum Error! ori_checksum=0x%08X, real_checksum=0x%08X\n", ori_checksum, real_checksum);
+		return -3;
+	}
+
+	entry = create_proc_entry(SRS_PROC_ENTRY_NAME,S_IRUSR | S_IRGRP | S_IROTH ,NULL);
+	if(!entry) {
+		printk(KERN_ERR"SRS: Cannot create /proc/%s\n", SRS_PROC_ENTRY_NAME);
+		return -4;
+	}
+	entry->proc_fops = &srs_fops;
+	pr_debug("SRS: /proc/%s successfully created!\n", SRS_PROC_ENTRY_NAME);
+	return 0;
+}
+
+inline unsigned int read_checksum(unsigned char* buff, int maxsize)
+{
+	if(maxsize < DINFO_CHECKSUM_OFFSET+DINFO_CHECKSUM_LENGTH)
+		return (unsigned int) -1;
+
+	return ( ((buff[DINFO_CHECKSUM_OFFSET]&0xFF)<<0)+((buff[DINFO_CHECKSUM_OFFSET+1]&0xFF)<<8)+((buff[DINFO_CHECKSUM_OFFSET+2]&0xFF)<<16)+((buff[DINFO_CHECKSUM_OFFSET+3]&0xFF)<<24));
+}
+
+unsigned int calc_checksum(unsigned char* buff, int maxsize)
+{
+	unsigned int checksum = 0;
+	unsigned int *p = 0;
+	int i = 0, length = 0;
+
+	if(!buff){
+		printk(KERN_ERR"SRS: NULL buffer!\n");
+		return 0;
+	}
+
+	if(maxsize < DINFO_LENGTH_OFFSET + DINFO_LENGTH_LENGTH){
+		printk(KERN_ERR"SRS: Maxsize(%d) is too small!!\n", maxsize);
+		return 0;
+	}
+
+	for(i=0; i<DINFO_LENGTH_LENGTH; i++){
+		length += (buff[i+DINFO_LENGTH_OFFSET]&0xFF) << i;
+	}
+
+	if(length % 4!=0){
+		printk(KERN_ERR"SRS: Length is not 4 bytes aligned!\n");
+		return 0;
+	}
+
+	length /= 4;
+	p = (unsigned int*) (buff+DINFO_CONTENT_OFFSET);
+	for( i= 0; i<length; i++){
+		checksum += p[i];
+	}
+
+	return checksum;
+}
+/* End of DINFO Function! */
+#endif

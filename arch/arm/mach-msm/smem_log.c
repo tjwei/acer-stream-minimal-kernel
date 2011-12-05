@@ -127,6 +127,9 @@ struct smem_log_item {
 #define SMEM_SPINLOCK_STATIC_LOG	"S:5"
 /* POWER shares with SMEM_SPINLOCK_SMEM_LOG */
 
+#ifdef CONFIG_MACH_ACER_A3
+int smemlog_initialized = 0;
+#endif
 static remote_spinlock_t remote_spinlock;
 static remote_spinlock_t remote_spinlock_static;
 static uint32_t smem_log_enable;
@@ -1951,6 +1954,9 @@ static int __init smem_log_init(void)
 	smem_log_enable = 1;
 	smem_log_debugfs_init();
 
+#ifdef CONFIG_MACH_ACER_A3
+	smemlog_initialized = 1;
+#endif
 	return misc_register(&smem_log_dev);
 }
 

@@ -125,5 +125,49 @@ config SENSORS_MT9T013
 	help
 	 MT9T013 Camera Driver implemented by HTC.
 
+config MS3C
+	tristate "Yamaha MS-3C e-compass support"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for Yamaha MS-3C.
 
+config BOSCH_SMB380
+	tristate "SMB380/BMA150 acceleration sensor support"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for Bosch Sensortec's
+	  acceleration sensors SMB380/BMA150.
+
+config SENSORS_ISL29018
+	tristate "ISL29018 light/proximity sensor support"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for Intersil's
+	  light/proximity sensor ISL29018.
+
+config SENSORS_INTERSIL
+	tristate "ISL29021 proximity sensor support"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for Intersil's
+	  proximity sensor ISL29021.
+
+config SENSORS_TSL2563
+	tristate "TSL29018 light sensor support"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for Intersil's
+	  light sensor TSL2563.
+
+config MCU
+	tristate "MCU micro-P driver"
+	depends on I2C=y
+	default n
+	help
+	  If you say yes here you get support for MCU micro-P driver.
 endmenu

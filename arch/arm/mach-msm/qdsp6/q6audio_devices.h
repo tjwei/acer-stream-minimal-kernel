@@ -77,8 +77,17 @@ struct q6_device_info {
 
 #define CAD_HW_DEVICE_ID_VOICE			0x15
 
+#define CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_PLAYBACK	0x3F
+#define CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_DOLBY	0x31
+
+/* Add HAC define */
+#define CAD_HW_DEVICE_ID_HAC_HANDSET_MIC        0x17
+#define CAD_HW_DEVICE_ID_HAC_HANDSET_SPKR       0x18
+
+#define CAD_HW_DEVICE_ID_SPKR_PHONE_MUSIC       0x19
 #define CAD_HW_DEVICE_ID_I2S_RX                 0x20
 #define CAD_HW_DEVICE_ID_I2S_TX                 0x21
+#define CAD_HW_DEVICE_ID_FM_REC                 0x28
 
 /* AUXPGA */
 #define CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB 0x22
@@ -86,9 +95,29 @@ struct q6_device_info {
 #define CAD_HW_DEVICE_ID_SPEAKER_SPKR_STEREO_LB 0x24
 #define CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB   0x25
 
+/* FM Speaker */
+#define CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB2  0x30
+
 #define CAD_HW_DEVICE_ID_NULL_RX		0x2A
 
 #define CAD_HW_DEVICE_ID_MAX_NUM                0x2F
+
+/* Path IDs used for BT SCO */
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_INBOX                        0x32
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_INBOX                       0x33
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT530                  0x34
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT530                 0x35
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT2050                 0x36
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT2050                0x37
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT2070                 0x38
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT2070                0x39
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_NOKIA_BH501                  0x3A
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_NOKIA_BH501                 0x3B
+#define CAD_HW_DEVICE_ID_BT_SCO_MIC_SONY_DS980                   0x3C
+#define CAD_HW_DEVICE_ID_BT_SCO_SPKR_SONY_DS980                  0x3D
+
+/* Add speaker dolby */
+#define CAD_HW_DEVICE_ID_SPKR_PHONE_DOLBY       0x3E
 
 #define CAD_HW_DEVICE_ID_INVALID                0xFF
 
@@ -126,6 +155,15 @@ static struct q6_device_info q6_audio_devices[] = {
 	{
 		.id	= ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO,
 		.cad_id	= CAD_HW_DEVICE_ID_SPKR_PHONE_MONO,
+		.path	= ADIE_PATH_SPEAKER_RX,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_SPEAKER,
+	},
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO,
+		.cad_id	= CAD_HW_DEVICE_ID_SPKR_PHONE_MUSIC,
 		.path	= ADIE_PATH_SPEAKER_RX,
 		.rate   = 48000,
 		.dir	= Q6_RX,
@@ -304,13 +342,193 @@ static struct q6_device_info q6_audio_devices[] = {
 		.hw	= Q6_HW_SPEAKER,
 	},
 	{
-		.id	= 0,
-		.cad_id	= 0,
-		.path	= 0,
+		.id	= ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO_LB,
+		.cad_id	= CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_LB,
+		.path	= ADIE_PATH_AUXPGA_HDPH_STEREO_LB,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_HEADSET,
+	},/* FM Headset */
+	{
+		.id     = ADSP_AUDIO_DEVICE_ID_HEADSET_MIC,
+		.cad_id = CAD_HW_DEVICE_ID_FM_REC,
+		.path   = ADIE_PATH_LINE_IN_REC,
 		.rate   = 8000,
-		.dir	= 0,
-		.codec	= Q6_CODEC_NONE,
-		.hw	= 0,
+		.dir    = Q6_TX,
+		.codec  = Q6_ICODEC_TX,
+		.hw     = Q6_HW_HEADSET,
+	},/* FM Headset LINE-IN TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO,
+		.cad_id	= CAD_HW_DEVICE_ID_SPEAKER_SPKR_MONO_LB2,
+		.path	= ADIE_PATH_AUXPGA_LINEOUT_MONO_LB,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_SPEAKER,
+	},/* FM Speaker */
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO,
+		.cad_id	= CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_PLAYBACK,
+		.path	= ADIE_PATH_HEADSET_STEREO_RX,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_HEADSET,
+	},/* Headset Playback */
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_HEADSET_SPKR_STEREO,
+		.cad_id	= CAD_HW_DEVICE_ID_HEADSET_SPKR_STEREO_DOLBY,
+		.path	= ADIE_PATH_HEADSET_STEREO_RX,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_HEADSET,
+	},/* Headset Dolby */
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_SPKR_PHONE_MONO,
+		.cad_id	= CAD_HW_DEVICE_ID_SPKR_PHONE_DOLBY,
+		.path	= ADIE_PATH_SPEAKER_RX,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_SPEAKER,
+	},/* Speaker Dolby */
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_HANDSET_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_HAC_HANDSET_SPKR,
+		.path	= ADIE_PATH_HANDSET_RX,
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ICODEC_RX,
+		.hw	= Q6_HW_HANDSET,
+	},/* HAC Path RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_HANDSET_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_HAC_HANDSET_MIC,
+		.path	= ADIE_PATH_HANDSET_TX,
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ICODEC_TX,
+		.hw	= Q6_HW_HANDSET,
+	},/* HAC Path TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_INBOX,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT INBOX RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_INBOX,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT INBOX TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT530,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT530 RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT530,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT530 TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT2050,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT2050 RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT2050,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT2050 TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_JABRA_BT2070,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT2070 RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_JABRA_BT2070,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT JABRA_BT2070 TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_NOKIA_BH501,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT NOKIA_BH501 RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_NOKIA_BH501,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT NOKIA_BH501 TX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR_SONY_DS980,
+		.path	= 0, /* XXX */
+		.rate   = 48000,
+		.dir	= Q6_RX,
+		.codec	= Q6_ECODEC_RX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT SONY_DS980 RX*/
+	{
+		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_MIC,
+		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_MIC_SONY_DS980,
+		.path	= 0, /* XXX */
+		.rate   = 8000,
+		.dir	= Q6_TX,
+		.codec	= Q6_ECODEC_TX,
+		.hw	= Q6_HW_BT_SCO,
+	},/* BT SONY_DS980 TX*/
+	{
+		.id     = 0,
+		.cad_id = 0,
+		.path   = 0,
+		.rate   = 8000,
+		.dir    = 0,
+		.codec  = Q6_CODEC_NONE,
+		.hw     = 0,
 	},
 };
 

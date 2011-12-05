@@ -167,7 +167,9 @@ void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl,
 
 void msm_fb_add_device(struct platform_device *pdev);
 
+#ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 int msm_fb_detect_client(const char *name);
+#endif
 
 #ifdef CONFIG_FB_BACKLIGHT
 void msm_fb_config_backlight(struct msm_fb_data_type *mfd);

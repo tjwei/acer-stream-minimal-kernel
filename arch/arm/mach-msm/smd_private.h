@@ -315,4 +315,92 @@ void *smem_find(unsigned id, unsigned size);
 void *smem_get_entry(unsigned id, unsigned *size);
 void smd_diag(void);
 
+/* ACER DEFINED BEGIN */
+typedef struct
+{
+    unsigned int magic_num_1;
+    unsigned int apps_boot_reason;
+
+} acer_bootmode_id_type;
+
+typedef enum
+{
+	ACER_AMSS_BOOT_IN_NORMAL,
+	ACER_AMSS_BOOT_IN_AMSS_FTM,
+	ACER_AMSS_BOOT_IN_OS_FTM,
+	ACER_AMSS_BOOT_IN_CHARGING_ONLY,
+	ACER_AMSS_BOOT_IN_AMSS_DOWNLOAD,
+	ACER_AMSS_BOOT_IN_OS_USB_FTM,
+	ACER_AMSS_BOOT_IN_OS_DOWNLOAD,
+	ACER_AMSS_BOOT_IN_SDDL_AMSS,
+	ACER_AMSS_BOOT_IN_SDDL_OS,
+	ACER_AMSS_BOOT_IN_CRASH_REBOOT,
+	ACER_AMSS_BOOT_IN_FTM,
+	ACER_AMSS_BOOT_INVALID = 0xFFFFFFFF,
+} acer_amss_boot_mode_t;
+
+typedef enum
+{
+	ACER_UART_LOG_TO_UART1,
+	ACER_UART_LOG_TO_UART3,
+	ACER_UART_LOG_OFF,
+	ACER_UART_LOG_INVALID = 0xFFFFFFFF,
+} acer_uart_log_switch_t;
+
+typedef enum
+{
+	ACER_BATT_TEMP_OK,
+	ACER_BATT_TEMP_ERROR_LV0,       // Disable charging, Power from Battery
+	ACER_BATT_TEMP_ERROR_LV1,       // Disable charging, Power form AC/USB
+	ACER_BATT_TEMP_ERROR_LV2,       // Charging current set 100 mA
+	ACER_BATT_TEMP_INVALID = 0xFFFFFFFF,
+} acer_batt_temp_info_t;
+
+typedef enum
+{
+	ACER_CHARGER_TYPE_IS_AC,
+	ACER_CHARGER_TYPE_IS_USB,
+	ACER_CHARGER_TYPE_NO_CHARGER,
+	ACER_CHARGER_TYPE_INVALID =  0xFFFFFFFF,
+} acer_charger_type_t;
+
+typedef enum
+{
+	ACER_HW_VERSION_EVT,
+	ACER_HW_VERSION_DVT1,
+	ACER_HW_VERSION_DVT2,
+	ACER_HW_VERSION_0_4,
+	ACER_HW_VERSION_0_5,
+	ACER_HW_VERSION_1_0,
+	ACER_HW_VERSION_1_1,
+	ACER_HW_VERSION_UNKNOW,
+	ACER_HW_VERSION_INVALID =  0xFFFFFFFF,
+} acer_hw_version_t;
+
+typedef enum
+{
+	ACER_OS_NORMAL_MODE,
+	ACER_OS_IDLE_MODE,
+	ACER_OS_SUSPEND_MODE,
+	ACER_OS_INVALID_MODE = 0xFFFFFFFF,
+} acer_os_pwr_state_t;
+
+
+typedef struct {
+	acer_amss_boot_mode_t		acer_amss_boot_mode;
+	acer_uart_log_switch_t		acer_uart_log_switch;
+#ifndef ACER_BATT_TEMP_BY_SMEM_CMD
+	acer_batt_temp_info_t		acer_batt_temp_info;
+#endif
+	acer_charger_type_t		acer_charger_type;
+	acer_bootmode_id_type		acer_bootmode_info;
+	char				acer_amss_sw_version[15];
+	acer_hw_version_t		acer_hw_version;
+	unsigned char			acer_batt_capacity;
+	unsigned char			acer_factory_sn[32];
+	acer_os_pwr_state_t		acer_os_pwr_state;
+	unsigned char			acer_os_sw_version[32];
+} acer_smem_flag_t;
+/* ACER DEFINED END */
+
 #endif

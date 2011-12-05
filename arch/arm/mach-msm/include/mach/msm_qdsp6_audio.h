@@ -97,6 +97,8 @@ struct q6audio_analog_ops {
 	void (*bt_sco_enable)(int en);
 	void (*int_mic_enable)(int en);
 	void (*ext_mic_enable)(int en);
+	void (*back_mic_enable)(int en);
+	void (*amp_mute)(int en);
 };
 
 void q6audio_register_analog_ops(struct q6audio_analog_ops *ops);

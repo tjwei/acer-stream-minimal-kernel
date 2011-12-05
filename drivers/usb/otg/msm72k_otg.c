@@ -71,11 +71,42 @@
 #include <mach/msm_hsusb.h>
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h>
+#endif
 
 #define MSM_USB_BASE	(dev->regs)
+#if defined(CONFIG_MACH_ACER_A3)
+#define is_host()	0 /* A3 do not support HOST mode */
+#else
 #define is_host()	((OTGSC_ID & readl(USB_OTGSC)) ? 0 : 1)
+#endif
 #define is_b_sess_vld()	((OTGSC_BSV & readl(USB_OTGSC)) ? 1 : 0)
 #define DRIVER_NAME	"msm_otg"
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+/**
+	Workaround for USB plug in/out quickly problem
+
+	When plug in/out the usb cable very quickly,
+	sometimes the scheduled works have different order to execute.
+	When this happened, A1 will not sleep all the time because USB hold the wake-lock.
+	We add a check into early_suspend function to ensure the wake-lock is released
+	before suspending if the usb cable is not attached.
+*/
+
+/* Definitions copy from kernel/wakelock.c */
+#define WAKE_LOCK_ACTIVE                 (1U << 9)
+#define WAKE_LOCK_AUTO_EXPIRE            (1U << 10)
+
+static struct early_suspend early_suspend;
+static void hsusb_early_suspend(struct early_suspend *h);
+static int not_done = 0;
+#endif
+
+#if defined(CONFIG_MACH_ACER_A3)
+unsigned int redundant_usb_int = false;
+#endif
 
 static void otg_reset(struct msm_otg *dev);
 static void msm_otg_set_vbus_state(int online);
@@ -151,7 +182,6 @@ static void disable_sess_valid(struct msm_otg *dev)
 	writel(readl(USB_OTGSC) & ~OTGSC_BSVIE, USB_OTGSC);
 }
 
-
 static int msm_otg_set_clk(struct otg_transceiver *xceiv, int on)
 {
 	struct msm_otg *dev = container_of(xceiv, struct msm_otg, otg);
@@ -199,6 +229,8 @@ static void msm_otg_start_host(struct otg_transceiver *xceiv, int on)
 {
 	struct msm_otg *dev = container_of(xceiv, struct msm_otg, otg);
 
+	printk("%s: xceiv->host = %x, on = %d, is_host() = %d\n",
+			__FUNCTION__, (unsigned int)xceiv->host, on, is_host());
 	if (!xceiv->host)
 		return;
 
@@ -210,8 +242,9 @@ static int msm_otg_suspend(struct msm_otg *dev)
 {
 	unsigned long timeout;
 	int vbus = 0;
-	enum chg_type chg_type = atomic_read(&dev->chg_type);
+	unsigned otgsc;
 
+	not_done = 0;
 	disable_irq(dev->irq);
 	if (dev->in_lpm)
 		goto out;
@@ -220,10 +253,21 @@ static int msm_otg_suspend(struct msm_otg *dev)
 	if (!is_host())
 		otg_reset(dev);
 
+	/* In case of fast plug-in and plug-out inside the otg_reset() the
+	 * servicing of BSV is missed (in the window of after phy and link
+	 * reset). Handle it if any missing bsv is detected */
+	if (is_b_sess_vld() && !is_host()) {
+		otgsc = readl(USB_OTGSC);
+		writel(otgsc, USB_OTGSC);
+		pr_info("%s:Process mising BSV\n", __func__);
+		msm_otg_start_peripheral(&dev->otg, 1);
+		enable_irq(dev->irq);
+		return -1;
+	}
 
 	ulpi_read(dev, 0x14);/* clear PHY interrupt latch register */
 	/* If there is no pmic notify support turn on phy comparators. */
-	if (!dev->pmic_notif_supp || chg_type == USB_CHG_TYPE__WALLCHARGER)
+	if (!dev->pmic_notif_supp)
 		ulpi_write(dev, 0x01, 0x30);
 	ulpi_write(dev, 0x08, 0x09);/* turn off PLL on integrated phy */
 
@@ -236,10 +280,6 @@ static int msm_otg_suspend(struct msm_otg *dev)
 			goto out;
 		}
 		msleep(1);
-		if (((readl(USB_OTGSC) & OTGSC_INTR_MASK) >> 8) &
-				readl(USB_OTGSC)) {
-			goto out;
-		}
 	}
 
 	writel(readl(USB_USBCMD) | ASYNC_INTR_CTRL | ULPI_STP_CTRL, USB_USBCMD);
@@ -301,6 +341,7 @@ static int msm_otg_resume(struct msm_otg *dev)
 	dev->in_lpm = 0;
 	pr_info("%s: usb exited from low power mode\n", __func__);
 
+	not_done = 1;
 	return 0;
 }
 
@@ -368,10 +409,10 @@ static int msm_otg_set_peripheral(struct otg_transceiver *xceiv,
 		dev->pmic_register_vbus_sn(&msm_otg_set_vbus_state);
 	pr_info("peripheral driver registered w/ tranceiver\n");
 
-	if (is_host())
-		msm_otg_start_host(&dev->otg, 1);
-	else if (is_b_sess_vld())
+	if (is_b_sess_vld())
 		msm_otg_start_peripheral(&dev->otg, 1);
+	else if (is_host())
+		msm_otg_start_host(&dev->otg, 1);
 	else
 		msm_otg_suspend(dev);
 
@@ -439,9 +480,16 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 	u32 otgsc = 0;
 
 	if (dev->in_lpm) {
+		if(redundant_usb_int){
+			pr_info("%s: drop interrupt!\n", __FUNCTION__);
+			redundant_usb_int = 0;
+			return IRQ_HANDLED;
+		}
 		msm_otg_resume(dev);
 		return IRQ_HANDLED;
 	}
+	if(not_done)
+		not_done = 0;
 
 	otgsc = readl(USB_OTGSC);
 	if (!(otgsc & OTGSC_INTR_STS_MASK))
@@ -509,6 +557,12 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 	struct msm_otg *dev;
 	struct msm_otg_platform_data *pdata;
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 1;
+	early_suspend.suspend = hsusb_early_suspend;
+	register_early_suspend(&early_suspend);
+#endif
+
 	dev = kzalloc(sizeof(struct msm_otg), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -526,7 +580,6 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 		dev->pmic_register_vbus_sn = pdata->pmic_register_vbus_sn;
 		dev->pmic_unregister_vbus_sn = pdata->pmic_unregister_vbus_sn;
 		dev->pmic_enable_ldo = pdata->pmic_enable_ldo;
-		dev->pclk_required_during_lpm = pdata->pclk_required_during_lpm;
 	}
 
 	if (pdata && pdata->pmic_vbus_irq) {
@@ -688,8 +741,115 @@ static int __exit msm_otg_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int usb_platform_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct msm_otg *dev = the_msm_otg;
+	//int vbus = 0;
+	u32 otgsc = 0;
+	unsigned temp;
+	unsigned long timeout;
+	pr_info("%s\n", __func__);
+
+	/* start to exit LPM for update register */
+	if (!dev->in_lpm){ /* we should be in LPM now! */
+		pr_err("%s: error!!!!!! Not in LPM\n", __func__);
+		return 0;
+	}
+	//wake_lock_timeout(&dev->wlock, HZ);
+
+	clk_enable(dev->pclk);
+	if (dev->cclk)
+		clk_enable(dev->cclk);
+
+	temp = readl(USB_USBCMD);
+	temp &= ~ASYNC_INTR_CTRL;
+	temp &= ~ULPI_STP_CTRL;
+	writel(temp, USB_USBCMD);
+
+	if (device_may_wakeup(dev->otg.dev))
+		disable_irq_wake(dev->irq);
+
+	/* back to LPM */
+	disable_irq(dev->irq);
+
+	otg_reset(dev);
+
+	/* In case of fast plug-in and plug-out inside the otg_reset() the
+	 * servicing of BSV is missed (in the window of after phy and link
+	 * reset). Handle it if any missing bsv is detected */
+	if (is_b_sess_vld() && !is_host()) {
+		otgsc = readl(USB_OTGSC);
+		writel(otgsc, USB_OTGSC);
+		pr_info("%s:Process mising BSV\n", __func__);
+		msm_otg_start_peripheral(&dev->otg, 1);
+		enable_irq(dev->irq);
+		return -1;
+	}
+
+	ulpi_read(dev, 0x14);/* clear PHY interrupt latch register */
+	/* If there is no pmic notify support turn on phy comparators. */
+
+	ulpi_write(dev, 0x08, 0x09);/* turn off PLL on integrated phy */
+
+	timeout = jiffies + msecs_to_jiffies(500);
+	disable_phy_clk();
+	while (!is_phy_clk_disabled()) {
+		if (time_after(jiffies, timeout)) {
+			pr_err("%s: Unable to suspend phy\n", __func__);
+			otg_reset(dev);
+			goto out;
+		}
+		msleep(1);
+	}
+
+	writel(readl(USB_USBCMD) | ASYNC_INTR_CTRL | ULPI_STP_CTRL, USB_USBCMD);
+	clk_disable(dev->pclk);
+	if (dev->cclk)
+		clk_disable(dev->cclk);
+	if (device_may_wakeup(dev->otg.dev))
+		enable_irq_wake(dev->irq);
+out:
+	enable_irq(dev->irq);
+
+	pr_info("%s: done!\n", __func__);
+	return 0;
+}
+
+static int usb_platform_resume(struct platform_device *pdev)
+{
+	struct msm_otg *dev = the_msm_otg;
+	unsigned otgsc;
+
+	pr_info("%s!\n", __func__);
+	if(!dev){
+		pr_err("%s: error null dev!\n", __func__);
+		return -1;
+	}
+
+	otg_reset(dev);
+
+	/* In case of fast plug-in and plug-out inside the otg_reset() the
+	 * servicing of BSV is missed (in the window of after phy and link
+	 * reset). Handle it if any missing bsv is detected */
+	if (is_b_sess_vld() && !is_host()) {
+		otgsc = readl(USB_OTGSC);
+		writel(otgsc, USB_OTGSC);
+		pr_info("%s:Process mising BSV\n", __func__);
+		msm_otg_start_peripheral(&dev->otg, 1);
+		return -1;
+	}
+
+	if(not_done){
+		pr_info("usb: go back to lpm\n");
+		msm_otg_suspend(dev);
+	}
+	return 0;
+}
+
 static struct platform_driver msm_otg_driver = {
 	.remove = __exit_p(msm_otg_remove),
+	.suspend = usb_platform_suspend,
+	.resume = usb_platform_resume,
 	.driver = {
 		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
@@ -708,6 +868,19 @@ static void __exit msm_otg_exit(void)
 
 module_init(msm_otg_init);
 module_exit(msm_otg_exit);
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void hsusb_early_suspend(struct early_suspend *h)
+{
+	struct msm_otg *dev = the_msm_otg;
+	pr_debug("%s: check\n", __func__);
+	if(not_done){
+		pr_info("%s: force goto suspend++\n", __func__);
+		msm_otg_suspend(dev);
+		pr_info("%s: force goto suspend--\n", __func__);
+	}
+}
+#endif
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("MSM usb transceiver driver");

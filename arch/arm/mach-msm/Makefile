@@ -79,10 +79,12 @@ obj-$(CONFIG_MSM_DMA_TEST) += dma_test.o
 obj-$(CONFIG_SURF_FFA_GPIO_KEYPAD) += keypad-surf-ffa.o
 
 obj-$(CONFIG_ARCH_MSM7X01A) += board-halibut.o
+
 obj-$(CONFIG_MACH_TROUT) += board-trout.o board-trout-gpio.o
 obj-$(CONFIG_MACH_TROUT) += board-trout-keypad.o board-trout-panel.o
 obj-$(CONFIG_MACH_TROUT) += htc_akm_cal.o htc_wifi_nvs.o htc_acoustic.o
 obj-$(CONFIG_MACH_TROUT) += board-trout-mmc.o board-trout-wifi.o
+obj-$(CONFIG_MACH_ACER_A3) += board-qsd8x50.o
 obj-$(CONFIG_MACH_QSD8X50_SURF) += board-qsd8x50.o
 obj-$(CONFIG_MACH_QSD8X50_FFA) += board-qsd8x50.o
 obj-$(CONFIG_MACH_QSD8X50_COMET) += board-comet.o
@@ -108,6 +110,14 @@ obj-$(CONFIG_MSM_RMT_STORAGE_SERVER) += rmt_storage_server.o
 obj-$(CONFIG_PMIC8058) += pmic8058-gpio.o pmic8058-mpp.o
 obj-$(CONFIG_NPA) += npa_resources.o
 obj-$(CONFIG_NPA_REMOTE_ONCRPC)	+= npa_remote_rpc_client.o
+
 obj-$(CONFIG_MSM_SPM) += spm.o
-obj-$(CONFIG_MACH_ACER_A3) += board-qsd8x50.o
+
 obj-$(CONFIG_MACH_ACER_A3) += devices_a3.o
+obj-$(CONFIG_ACER_A3_GPIO_KEYPAD) += keypad-acer-a3.o
+obj-$(CONFIG_ACER_A3_KEYPAD) += acer_keypad_a3.o
+obj-$(CONFIG_ACER_BATTERY_A3) += acer_battery_a3.o
+obj-$(CONFIG_ACER_VIBRATOR) += acer_vibrator.o
+
+obj-$(CONFIG_ACER_HEADSET) += acer_headset.o
+obj-$(CONFIG_ACER_HEADSET_BUTT) += acer_headset_butt.o

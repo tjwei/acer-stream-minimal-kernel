@@ -38,3 +38,5 @@ wm97xx-ts-$(CONFIG_TOUCHSCREEN_WM9712)	+= wm9712.o
 wm97xx-ts-$(CONFIG_TOUCHSCREEN_WM9713)	+= wm9713.o
 obj-$(CONFIG_TOUCHSCREEN_WM97XX_MAINSTONE)	+= mainstone-wm97xx.o
 obj-$(CONFIG_TOUCHSCREEN_MSM_LEGACY)		+= msm_touch.o
+obj-$(CONFIG_TOUCHSCREEN_AUO_H353)	+= auo_ts.o
+obj-$(CONFIG_TOUCHSCREEN_ATMEL)         += atmel_tsadcc.o

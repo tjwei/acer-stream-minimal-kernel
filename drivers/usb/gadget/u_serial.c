@@ -723,9 +723,11 @@ static int gs_start_io(struct gs_port *port)
  */
 static int gs_open(struct tty_struct *tty, struct file *file)
 {
-	int		port_num = tty->index;
+	int		port_num = -1;
 	struct gs_port	*port;
 	int		status;
+	if(tty)
+		port_num = tty->index;
 
 	if (port_num < 0 || port_num >= n_ports)
 		return -ENXIO;
@@ -840,14 +842,17 @@ static int gs_writes_finished(struct gs_port *p)
 	return cond;
 }
 
-static void gs_close(struct tty_struct *tty, struct file *file)
+static void gs_close_forcely(struct gs_port *pt)
 {
-	struct gs_port *port = tty->driver_data;
+	struct gs_port *port = pt;
 	struct gserial	*gser;
+	struct tty_struct *tty = port->port_tty;
 
+	printk(KERN_ERR"%s called!\n", __func__);
 	spin_lock_irq(&port->port_lock);
 
 	if (port->open_count != 1) {
+		pr_info("gs_close: port->open_count=%d !=(1)\n", port->open_count);
 		if (port->open_count == 0)
 			WARN_ON(1);
 		else
@@ -855,7 +860,7 @@ static void gs_close(struct tty_struct *tty, struct file *file)
 		goto exit;
 	}
 
-	pr_debug("gs_close: ttyGS%d (%p,%p) ...\n", port->port_num, tty, file);
+	pr_info("%s: ttyGS%d ...\n", __func__, port->port_num);
 
 	/* mark port as closing but in use; we can drop port lock
 	 * and sleep if necessary
@@ -893,7 +898,80 @@ static void gs_close(struct tty_struct *tty, struct file *file)
 
 	port->openclose = false;
 
-	pr_debug("gs_close: ttyGS%d (%p,%p) done!\n",
+	pr_info("%s: ttyGS%d done!\n",
+			__func__,
+			port->port_num);
+
+	wake_up(&port->close_wait);
+exit:
+	spin_unlock_irq(&port->port_lock);
+}
+
+static void gs_close(struct tty_struct *tty, struct file *file)
+{
+	struct gs_port *port = NULL;
+	struct gserial	*gser;
+
+	if(!tty || !file){
+		pr_err("%s error: wrong parameter! *tty=0x%x, *file=0x%x", __func__, (unsigned int) tty, (unsigned int) file);
+		return;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_info("%s: port data null (port already closed?)\n", __func__);
+		return;
+	}
+
+	spin_lock_irq(&port->port_lock);
+
+	if (port->open_count != 1) {
+		pr_info("gs_close: port->open_count=%d !=(1)\n", port->open_count);
+		if (port->open_count == 0)
+			WARN_ON(1);
+		else
+			--port->open_count;
+		goto exit;
+	}
+
+	pr_info("gs_close: ttyGS%d (%p,%p) ...\n", port->port_num, tty, file);
+
+	/* mark port as closing but in use; we can drop port lock
+	 * and sleep if necessary
+	 */
+	port->openclose = true;
+	port->open_count = 0;
+
+	gser = port->port_usb;
+	if (gser && gser->disconnect)
+		gser->disconnect(gser);
+
+	/* wait for circular write buffer to drain, disconnect, or at
+	 * most GS_CLOSE_TIMEOUT seconds; then discard the rest
+	 */
+	if (gs_buf_data_avail(&port->port_write_buf) > 0 && gser) {
+		spin_unlock_irq(&port->port_lock);
+		wait_event_interruptible_timeout(port->drain_wait,
+					gs_writes_finished(port),
+					GS_CLOSE_TIMEOUT * HZ);
+		spin_lock_irq(&port->port_lock);
+		gser = port->port_usb;
+	}
+
+	/* Iff we're disconnected, there can be no I/O in flight so it's
+	 * ok to free the circular buffer; else just scrub it.  And don't
+	 * let the push tasklet fire again until we're re-opened.
+	 */
+	if (gser == NULL)
+		gs_buf_free(&port->port_write_buf);
+	else
+		gs_buf_clear(&port->port_write_buf);
+
+	tty->driver_data = NULL;
+	port->port_tty = NULL;
+
+	port->openclose = false;
+
+	pr_info("gs_close: ttyGS%d (%p,%p) done!\n",
 			port->port_num, tty, file);
 
 	wake_up(&port->close_wait);
@@ -903,9 +981,19 @@ exit:
 
 static int gs_write(struct tty_struct *tty, const unsigned char *buf, int count)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	unsigned long	flags;
 	int		status;
+
+	if(!tty || !buf){
+		pr_err("%s error: wrong parameter! *tty=0x%x, *buf=0x%x", __func__, (unsigned int) tty, (unsigned int) buf);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	pr_vdebug("gs_write: ttyGS%d (%p) writing %d bytes\n",
 			port->port_num, tty, count);
@@ -923,9 +1011,19 @@ static int gs_write(struct tty_struct *tty, const unsigned char *buf, int count)
 
 static int gs_put_char(struct tty_struct *tty, unsigned char ch)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	unsigned long	flags;
 	int		status;
+
+	if(!tty ){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	pr_vdebug("gs_put_char: (%d,%p) char=0x%x, called from %p\n",
 		port->port_num, tty, ch, __builtin_return_address(0));
@@ -939,8 +1037,18 @@ static int gs_put_char(struct tty_struct *tty, unsigned char ch)
 
 static void gs_flush_chars(struct tty_struct *tty)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	unsigned long	flags;
+
+	if(!tty ){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return;
+	}
 
 	pr_vdebug("gs_flush_chars: (%d,%p)\n", port->port_num, tty);
 
@@ -952,9 +1060,19 @@ static void gs_flush_chars(struct tty_struct *tty)
 
 static int gs_write_room(struct tty_struct *tty)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	unsigned long	flags;
 	int		room = 0;
+
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb)
@@ -969,9 +1087,19 @@ static int gs_write_room(struct tty_struct *tty)
 
 static int gs_chars_in_buffer(struct tty_struct *tty)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	unsigned long	flags;
 	int		chars = 0;
+
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	chars = gs_buf_data_avail(&port->port_write_buf);
@@ -989,6 +1117,16 @@ static void gs_unthrottle(struct tty_struct *tty)
 	struct gs_port		*port = tty->driver_data;
 	unsigned long		flags;
 
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return;
+	}
+
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb) {
 		/* Kickstart read queue processing.  We don't do xon/xoff,
@@ -1003,9 +1141,19 @@ static void gs_unthrottle(struct tty_struct *tty)
 
 static int gs_break_ctl(struct tty_struct *tty, int duration)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	int		status = 0;
 	struct gserial	*gser;
+
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	pr_vdebug("gs_break_ctl: ttyGS%d, send break (%d) \n",
 			port->port_num, duration);
@@ -1021,9 +1169,19 @@ static int gs_break_ctl(struct tty_struct *tty, int duration)
 
 static int gs_tiocmget(struct tty_struct *tty, struct file *file)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	struct gserial	*gser;
 	unsigned int result = 0;
+
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	spin_lock_irq(&port->port_lock);
 	gser = port->port_usb;
@@ -1051,9 +1209,19 @@ fail:
 static int gs_tiocmset(struct tty_struct *tty, struct file *file,
 	unsigned int set, unsigned int clear)
 {
-	struct gs_port	*port = tty->driver_data;
+	struct gs_port	*port = NULL;
 	struct gserial *gser;
 	int	status = 0;
+
+	if(!tty){
+		pr_err("%s error: wrong parameter! *tty=0x%x", __func__, (unsigned int) tty);
+		return 0;
+	}
+	port = tty->driver_data;
+	if(!port){
+		pr_err("%s error: port = NULL! already closed??\n", __func__);
+		return 0;
+	}
 
 	spin_lock_irq(&port->port_lock);
 	gser = port->port_usb;
@@ -1240,6 +1408,7 @@ static int gs_closed(struct gs_port *port)
 {
 	int cond;
 
+	pr_info("usb gs_closed open_count=%d, openclose=%x\n", port->open_count, port->openclose);
 	spin_lock_irq(&port->port_lock);
 	cond = (port->open_count == 0) && !port->openclose;
 	spin_unlock_irq(&port->port_lock);
@@ -1267,9 +1436,10 @@ void gserial_cleanup(void)
 		return;
 
 	/* start sysfs and /dev/ttyGS* node removal */
+	pr_info("gs_cleanup: unregister tty!\n");
 	for (i = 0; i < n_ports; i++)
 		tty_unregister_device(gs_tty_driver, i);
-
+	pr_info("gs_cleanup: wait port close!\n");
 	for (i = 0; i < n_ports; i++) {
 		/* prevent new opens */
 		mutex_lock(&ports[i].lock);
@@ -1279,9 +1449,18 @@ void gserial_cleanup(void)
 
 		tasklet_kill(&port->push);
 
+		pr_info("gs_cleanup: port%d++\n", i);
 		/* wait for old opens to finish */
-		wait_event(port->close_wait, gs_closed(port));
+		wait_event_timeout(port->close_wait, gs_closed(port), 2*HZ);
+		if(!gs_closed(port)){
+			pr_info("%s: port %d still open, forcely close it!\n", __func__, i);
+			gs_close_forcely(port);
+			pr_info("%s: wait port %d close event again!\n", __func__, i);
+			wait_event(port->close_wait, gs_closed(port));
+			pr_info("%s: wait port %d close event done!\n", __func__, i);
+		}
 
+		pr_info("gs_cleanup: port%d--\n", i);
 		WARN_ON(port->port_usb != NULL);
 
 		kfree(port);
@@ -1291,7 +1470,7 @@ void gserial_cleanup(void)
 	tty_unregister_driver(gs_tty_driver);
 	gs_tty_driver = NULL;
 
-	pr_debug("%s: cleaned up ttyGS* support\n", __func__);
+	pr_info("%s: cleaned up ttyGS* support\n", __func__);
 }
 
 /**

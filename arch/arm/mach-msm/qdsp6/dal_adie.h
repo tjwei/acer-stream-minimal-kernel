@@ -55,10 +55,17 @@ enum {
 #define ADIE_PATH_SPEAKER_TX			0x010740fc
 #define ADIE_PATH_SPEAKER_RX			0x010740fd
 #define ADIE_PATH_SPEAKER_STEREO_RX		0x01074101
+#define ADIE_PATH_LINE_IN_REC			0x0107410a
 
 /* Path IDs used for TTY */
 #define ADIE_PATH_TTY_HEADSET_TX		0x010740fe
 #define ADIE_PATH_TTY_HEADSET_RX		0x010740ff
+
+/* Path IDs used for HAC */
+#ifdef CONFIG_MACH_ACER_A3
+#define ADIE_PATH_HAC_HANDSET_TX		0x010740f6
+#define ADIE_PATH_HAC_HANDSET_RX		0x010740f7
+#endif
 
 /* Path IDs used by Factory Test Mode. */
 #define ADIE_PATH_FTM_MIC1_TX			0x01074108

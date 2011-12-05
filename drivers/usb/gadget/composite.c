@@ -810,6 +810,12 @@ unknown:
 		if ((ctrl->bRequestType & USB_RECIP_MASK)
 				== USB_RECIP_INTERFACE) {
 			struct usb_configuration	*config;
+
+			if (cdev->config == NULL){
+				pr_info("%s(%d): cdev->config is NULL!\n", __func__, __LINE__);
+				return value;
+			}
+
 			config = cdev->config;
 			if (w_index >= config->next_interface_id)
 				goto done;
