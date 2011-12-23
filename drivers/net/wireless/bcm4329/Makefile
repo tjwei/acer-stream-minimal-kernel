@@ -4,7 +4,7 @@ DHDCFLAGS =  -DLINUX -DBCMDRIVER -DBCMDONGLEHOST -DDHDTHREAD -DBCMWPA2          
              -DDHD_SCHED -DDHD_DEBUG -DSDTEST -DBDC -DTOE -DDHD_BCMEVENTS           \
              -DSHOW_EVENTS -DSDIO_ISR_THREAD -DBCMSDIO -DBCMLXSDMMC                 \
              -DBCMPLATFORM_BUS -DEMBEDDED_PLATFORM                                  \
-             -Wall -Wstrict-prototypes -Werror                                      \
+             -Wall -Wstrict-prototypes                                      \
              -Idrivers/net/wireless/bcm4329 -Idrivers/net/wireless/bcm4329/include
 
 DHDOFILES = dhd_linux.o linux_osl.o bcmutils.o dhd_common.o dhd_custom_gpio.o   \
